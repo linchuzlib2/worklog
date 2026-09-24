@@ -257,6 +257,18 @@ def edit_note(note_id):
     return render_template("note_form.html", note=note, tasks=Task.query.order_by(Task.title).all(), selected_task_id=note.task_id)
 
 
+@app.post("/notes/<int:note_id>/delete")
+def delete_note(note_id):
+    note = db.get_or_404(Note, note_id)
+    for attachment in note.attachments:
+        storage.delete(attachment.object_key)
+    db.session.delete(note)
+    db.session.commit()
+    sync_database()
+    flash("笔记已删除", "success")
+    return redirect(url_for("index"))
+
+
 @app.post("/attachments/upload")
 def upload_attachment():
     uploaded = request.files.get("file")
