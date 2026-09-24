@@ -7,6 +7,7 @@ from io import BytesIO
 import bleach
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
+from botocore.config import Config
 from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, send_file, url_for
 from flask_sqlalchemy import SQLAlchemy
@@ -74,6 +75,7 @@ class ObjectStorage:
                 aws_access_key_id=os.getenv("OSS_ACCESS_KEY_ID"),
                 aws_secret_access_key=os.getenv("OSS_SECRET_ACCESS_KEY"),
                 region_name=os.getenv("OSS_REGION", "oss-cn-hangzhou"),
+                config=Config(s3={"addressing_style": "virtual"}),
             )
 
     @property
@@ -102,8 +104,10 @@ class ObjectStorage:
             return None
         try:
             return self.download(key)
-        except self.client.exceptions.NoSuchKey:
-            return None
+        except ClientError as error:
+            if error.response.get("Error", {}).get("Code") in {"NoSuchKey", "NoSuchBucket", "404"}:
+                return None
+            raise
 
 
 storage = ObjectStorage()
