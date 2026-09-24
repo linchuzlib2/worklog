@@ -54,3 +54,65 @@ document.addEventListener('keydown', (event) => {
   event.preventDefault();
   form.requestSubmit();
 });
+
+const scheduleDialog = document.querySelector('#schedule-dialog');
+if (scheduleDialog) {
+  const startInput = scheduleDialog.querySelector('input[name="start_at"]');
+  const endInput = scheduleDialog.querySelector('input[name="end_at"]');
+  const toDateTimeValue = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  const openScheduleDialog = (date, time) => {
+    const start = new Date(`${date}T${time}:00`);
+    startInput.value = toDateTimeValue(start);
+    start.setMinutes(start.getMinutes() + 30);
+    endInput.value = toDateTimeValue(start);
+    scheduleDialog.showModal();
+    scheduleDialog.querySelector('input[name="title"]').focus();
+  };
+  document.querySelectorAll('.calendar-slot, .calendar-day-header').forEach((cell) => {
+    cell.addEventListener('click', (event) => {
+      if (event.target.closest('.schedule-card, a, form, button')) return;
+      openScheduleDialog(cell.dataset.date, cell.dataset.time || '09:00');
+    });
+    cell.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openScheduleDialog(cell.dataset.date, cell.dataset.time || '09:00');
+    });
+  });
+  scheduleDialog.querySelector('[data-close-schedule]').addEventListener('click', () => scheduleDialog.close());
+  scheduleDialog.addEventListener('click', (event) => {
+    if (event.target === scheduleDialog) scheduleDialog.close();
+  });
+}
+
+const highlightRoot = document.querySelector('[data-search-query]');
+const highlightQuery = highlightRoot?.dataset.searchQuery || new URLSearchParams(window.location.search).get('q') || '';
+if (highlightQuery.trim()) {
+  const escapedQuery = highlightQuery.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const matcher = new RegExp(escapedQuery, 'gi');
+  document.querySelectorAll('[data-highlight]').forEach((container) => {
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => node.parentElement?.closest('mark, script, style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
+    });
+    const textNodes = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+    textNodes.forEach((node) => {
+      const text = node.nodeValue;
+      matcher.lastIndex = 0;
+      if (!matcher.test(text)) return;
+      matcher.lastIndex = 0;
+      const fragment = document.createDocumentFragment();
+      let lastIndex = 0;
+      text.replace(matcher, (match, offset) => {
+        fragment.append(text.slice(lastIndex, offset));
+        const mark = document.createElement('mark');
+        mark.textContent = match;
+        fragment.append(mark);
+        lastIndex = offset + match.length;
+        return match;
+      });
+      fragment.append(text.slice(lastIndex));
+      node.replaceWith(fragment);
+    });
+  });
+}
