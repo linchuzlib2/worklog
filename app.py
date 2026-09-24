@@ -11,7 +11,7 @@ from botocore.config import Config
 from dotenv import load_dotenv
 from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import inspect, or_
+from sqlalchemy import func, inspect, or_
 
 load_dotenv()
 
@@ -203,7 +203,7 @@ def new_task():
 @app.route("/tasks/<int:task_id>")
 def task_detail(task_id):
     task = db.get_or_404(Task, task_id)
-    return render_template("task_detail.html", task=task)
+    return render_template("task_detail.html", task=task, available_files=Attachment.query.order_by(Attachment.original_name).all())
 
 
 @app.route("/tasks/<int:task_id>/edit", methods=["GET", "POST"])
@@ -258,7 +258,7 @@ def new_note():
 @app.route("/notes/<int:note_id>")
 def note_detail(note_id):
     note = db.get_or_404(Note, note_id)
-    return render_template("note_detail.html", note=note)
+    return render_template("note_detail.html", note=note, available_files=Attachment.query.order_by(Attachment.original_name).all())
 
 
 @app.route("/notes/<int:note_id>/edit", methods=["GET", "POST"])
@@ -342,6 +342,37 @@ def delete_file(attachment_id):
     return redirect(request.referrer or url_for("file_manager"))
 
 
+@app.get("/attachments/check-name")
+def check_attachment_name():
+    filename = request.args.get("filename", "").strip()
+    duplicate = bool(filename and Attachment.query.filter(func.lower(Attachment.original_name) == filename.lower()).first())
+    return jsonify({"duplicate": duplicate})
+
+
+@app.post("/attachments/link")
+def link_attachment():
+    attachment_id = request.form.get("attachment_id", type=int)
+    if not attachment_id:
+        flash("请选择文件", "error")
+        return redirect(request.referrer or url_for("file_manager"))
+    attachment = db.get_or_404(Attachment, attachment_id)
+    task_id = request.form.get("task_id", type=int)
+    note_id = request.form.get("note_id", type=int)
+    if not task_id and not note_id:
+        flash("请选择任务或笔记", "error")
+    else:
+        if task_id:
+            db.get_or_404(Task, task_id)
+            attachment.task_id = task_id
+        if note_id:
+            db.get_or_404(Note, note_id)
+            attachment.note_id = note_id
+        db.session.commit()
+        sync_database()
+        flash("文件已关联", "success")
+    return redirect(request.referrer or url_for("file_manager"))
+
+
 @app.post("/attachments/upload")
 def upload_attachment():
     uploaded = request.files.get("file")
@@ -354,6 +385,11 @@ def upload_attachment():
     task_id = request.form.get("task_id", type=int)
     note_id = request.form.get("note_id", type=int)
     folder_id = request.form.get("folder_id", type=int)
+    allow_duplicate = request.form.get("allow_duplicate") == "1"
+    duplicate = Attachment.query.filter(func.lower(Attachment.original_name) == uploaded.filename.strip().lower()).first()
+    if duplicate and not allow_duplicate:
+        flash(f"已存在同名文件“{uploaded.filename}”，如需继续上传请确认重复上传。", "error")
+        return redirect(request.referrer or url_for("file_manager"))
     safe_name = re.sub(r"[^\w.\- ]", "_", uploaded.filename)[:180]
     key = f"attachments/{uuid.uuid4().hex}-{safe_name}"
     try:

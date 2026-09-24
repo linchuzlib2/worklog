@@ -31,3 +31,18 @@ document.querySelectorAll('.folder-card[data-folder-id]').forEach((folder) => {
     if (response.ok) window.location.reload();
   });
 });
+
+document.querySelectorAll('.duplicate-aware-upload').forEach((form) => {
+  form.addEventListener('submit', async (event) => {
+    const input = form.querySelector('input[type="file"]');
+    const allow = form.querySelector('input[name="allow_duplicate"]');
+    if (!input.files.length || allow.value === '1') return;
+    event.preventDefault();
+    const response = await fetch(`/attachments/check-name?filename=${encodeURIComponent(input.files[0].name)}`);
+    const result = await response.json();
+    if (!result.duplicate || confirm(`文件管理中已有“${input.files[0].name}”，仍要重复上传吗？`)) {
+      allow.value = '1';
+      form.submit();
+    }
+  });
+});
