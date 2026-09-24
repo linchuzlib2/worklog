@@ -75,7 +75,12 @@ class ObjectStorage:
                 aws_access_key_id=os.getenv("OSS_ACCESS_KEY_ID"),
                 aws_secret_access_key=os.getenv("OSS_SECRET_ACCESS_KEY"),
                 region_name=os.getenv("OSS_REGION", "oss-cn-hangzhou"),
-                config=Config(s3={"addressing_style": "virtual"}),
+                config=Config(
+                    signature_version="s3v4",
+                    s3={"addressing_style": "virtual", "payload_signing_enabled": False},
+                    request_checksum_calculation="when_required",
+                    response_checksum_validation="when_required",
+                ),
             )
 
     @property
