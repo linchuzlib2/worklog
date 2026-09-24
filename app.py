@@ -226,7 +226,7 @@ def new_note():
         sync_database()
         flash("笔记已保存", "success")
         return redirect(url_for("note_detail", note_id=note.id))
-    return render_template("note_form.html", note=None, tasks=Task.query.order_by(Task.title).all())
+    return render_template("note_form.html", note=None, tasks=Task.query.order_by(Task.title).all(), selected_task_id=request.args.get("task_id", type=int))
 
 
 @app.route("/notes/<int:note_id>")
@@ -246,7 +246,7 @@ def edit_note(note_id):
         sync_database()
         flash("笔记已更新", "success")
         return redirect(url_for("note_detail", note_id=note.id))
-    return render_template("note_form.html", note=note, tasks=Task.query.order_by(Task.title).all())
+    return render_template("note_form.html", note=note, tasks=Task.query.order_by(Task.title).all(), selected_task_id=note.task_id)
 
 
 @app.post("/attachments/upload")
