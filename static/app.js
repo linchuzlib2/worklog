@@ -46,3 +46,11 @@ document.querySelectorAll('.duplicate-aware-upload').forEach((form) => {
     }
   });
 });
+
+document.addEventListener('keydown', (event) => {
+  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return;
+  const form = document.querySelector('form.editor-form, form.duplicate-aware-upload');
+  if (!form) return;
+  event.preventDefault();
+  form.requestSubmit();
+});

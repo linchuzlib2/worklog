@@ -295,12 +295,13 @@ def file_manager():
         return redirect(url_for("file_manager"))
     folders = Folder.query.filter_by(parent_id=folder_id).order_by(Folder.name).all()
     files = Attachment.query.filter_by(folder_id=folder_id).order_by(Attachment.created_at.desc()).all()
+    all_folders = Folder.query.order_by(Folder.name).all()
     breadcrumbs = []
     current = folder
     while current:
         breadcrumbs.append(current)
         current = current.parent
-    return render_template("file_manager.html", folder=folder, folders=folders, files=files, breadcrumbs=list(reversed(breadcrumbs)))
+    return render_template("file_manager.html", folder=folder, folders=folders, files=files, all_folders=all_folders, breadcrumbs=list(reversed(breadcrumbs)))
 
 
 @app.post("/files/folders")
@@ -317,6 +318,41 @@ def create_folder():
     return redirect(url_for("file_manager", folder_id=parent_id))
 
 
+def folder_has_content(folder):
+    if Attachment.query.filter_by(folder_id=folder.id).first() is not None:
+        return True
+    children = Folder.query.filter_by(parent_id=folder.id).all()
+    return bool(children) or any(folder_has_content(child) for child in children)
+
+
+@app.post("/files/folders/<int:folder_id>/rename")
+def rename_folder(folder_id):
+    folder = db.get_or_404(Folder, folder_id)
+    name = request.form.get("name", "").strip()
+    if name:
+        folder.name = name
+        db.session.commit()
+        sync_database()
+        flash("文件夹已改名", "success")
+    else:
+        flash("文件夹名称不能为空", "error")
+    return redirect(url_for("file_manager", folder_id=folder.parent_id))
+
+
+@app.post("/files/folders/<int:folder_id>/delete")
+def delete_folder(folder_id):
+    folder = db.get_or_404(Folder, folder_id)
+    parent_id = folder.parent_id
+    if folder_has_content(folder):
+        flash("文件夹或其子文件夹不为空，不能删除", "error")
+    else:
+        db.session.delete(folder)
+        db.session.commit()
+        sync_database()
+        flash("文件夹已删除", "success")
+    return redirect(url_for("file_manager", folder_id=parent_id))
+
+
 @app.post("/files/<int:attachment_id>/move")
 def move_file(attachment_id):
     attachment = db.get_or_404(Attachment, attachment_id)
@@ -328,6 +364,9 @@ def move_file(attachment_id):
     attachment.folder_id = folder_id or None
     db.session.commit()
     sync_database()
+    if not request.is_json:
+        flash("文件已移动", "success")
+        return redirect(request.referrer or url_for("file_manager"))
     return jsonify({"ok": True})
 
 
