@@ -50,6 +50,7 @@ class Note(db.Model):
     task_id = db.Column(db.Integer, db.ForeignKey("task.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    attachments = db.relationship("Attachment", backref="note", cascade="all, delete-orphan", order_by="Attachment.created_at.desc()")
 
 
 class Attachment(db.Model):
