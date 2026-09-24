@@ -1,7 +1,7 @@
 import os
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 
 import bleach
@@ -72,6 +72,17 @@ class Attachment(db.Model):
     note_id = db.Column(db.Integer, db.ForeignKey("note.id"), nullable=True)
     folder_id = db.Column(db.Integer, db.ForeignKey("folder.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Schedule(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    start_at = db.Column(db.DateTime, nullable=False)
+    end_at = db.Column(db.DateTime, nullable=True)
+    description = db.Column(db.Text, default="")
+    task_id = db.Column(db.Integer, db.ForeignKey("task.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    task = db.relationship("Task", backref=db.backref("schedules", order_by="Schedule.start_at"))
 
 
 class ObjectStorage:
@@ -161,6 +172,14 @@ def parse_date(value):
     return datetime.strptime(value, "%Y-%m-%d").date()
 
 
+def parse_datetime(value):
+    return datetime.strptime(value, "%Y-%m-%dT%H:%M") if value else None
+
+
+def plain_text(value):
+    return re.sub(r"<[^>]+>", " ", value or "")
+
+
 def migrate_schema():
     inspector = inspect(db.engine)
     columns = {column["name"] for column in inspector.get_columns("attachment")}
@@ -171,7 +190,7 @@ def migrate_schema():
 
 @app.context_processor
 def inject_counts():
-    return {"pending_count": Task.query.filter(Task.status != "done").count() if db.engine else 0, "oss_enabled": storage.enabled, "now": datetime.utcnow()}
+    return {"pending_count": Task.query.filter(Task.status != "done").count() if db.engine else 0, "oss_enabled": storage.enabled, "now": datetime.utcnow(), "timedelta": timedelta}
 
 
 @app.route("/")
@@ -186,6 +205,66 @@ def index():
     tasks = task_query.order_by(Task.created_at.desc()).all()
     notes = Note.query.order_by(Note.updated_at.desc()).limit(8).all()
     return render_template("index.html", tasks=tasks, notes=notes, current_status=status, query=query)
+
+
+@app.route("/schedule", methods=["GET", "POST"])
+def schedule():
+    if request.method == "POST":
+        start_at = parse_datetime(request.form.get("start_at"))
+        end_at = parse_datetime(request.form.get("end_at"))
+        if not start_at:
+            flash("请填写开始时间", "error")
+        else:
+            item = Schedule(title=request.form["title"].strip(), start_at=start_at, end_at=end_at, description=request.form.get("description", "").strip(), task_id=request.form.get("task_id", type=int) or None)
+            db.session.add(item)
+            db.session.commit()
+            sync_database()
+            flash("日程已创建", "success")
+        return redirect(url_for("schedule", week=request.form.get("week")))
+    selected = request.args.get("week")
+    try:
+        week_start = datetime.strptime(selected, "%Y-%m-%d") if selected else datetime.now()
+    except ValueError:
+        week_start = datetime.now()
+    week_start = (week_start - timedelta(days=week_start.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    week_end = week_start + timedelta(days=7)
+    items = Schedule.query.filter(Schedule.start_at >= week_start, Schedule.start_at < week_end).order_by(Schedule.start_at).all()
+    days = [week_start + timedelta(days=index) for index in range(7)]
+    return render_template("schedule.html", items=items, days=days, week_start=week_start, previous_week=week_start - timedelta(days=7), next_week=week_start + timedelta(days=7), tasks=Task.query.order_by(Task.title).all())
+
+
+@app.post("/schedule/<int:schedule_id>/delete")
+def delete_schedule(schedule_id):
+    item = db.get_or_404(Schedule, schedule_id)
+    db.session.delete(item)
+    db.session.commit()
+    sync_database()
+    flash("日程已删除", "success")
+    return redirect(request.referrer or url_for("schedule"))
+
+
+@app.route("/search")
+def global_search():
+    query = request.args.get("q", "").strip()
+    task_results = []
+    note_results = []
+    file_results = []
+    if query:
+        pattern = f"%{query}%"
+        task_results = Task.query.filter(or_(Task.title.ilike(pattern), Task.description.ilike(pattern))).all()
+        note_results = Note.query.filter(or_(Note.title.ilike(pattern), Note.content.ilike(pattern))).all()
+        candidates = Attachment.query.filter(Attachment.original_name.ilike(pattern)).all()
+        for attachment in Attachment.query.order_by(Attachment.created_at.desc()).all():
+            if attachment in candidates or not storage.enabled or not (attachment.content_type or "").startswith("text/"):
+                continue
+            try:
+                content = storage.download(attachment.object_key).decode("utf-8", errors="ignore")
+                if query.lower() in content.lower():
+                    candidates.append(attachment)
+            except (BotoCoreError, ClientError, UnicodeError):
+                continue
+        file_results = candidates
+    return render_template("search.html", query=query, task_results=task_results, note_results=note_results, file_results=file_results)
 
 
 @app.route("/tasks/new", methods=["GET", "POST"])
