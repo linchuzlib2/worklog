@@ -1,1 +1,37 @@
-{% extends 'base.html' %}{% block title %}日程安排{% endblock %}{% block content %}<div class="schedule-page"><section class="page-heading"><div><p class="eyebrow">WEEKLY PLANNER</p><h1>日程安排</h1><p class="subtitle">把每周的工作安排得清楚一点。</p></div><div class="week-nav"><a class="button ghost small" href="{{ url_for('schedule', week=previous_week.strftime('%Y-%m-%d')) }}">← 上周</a><strong>{{ week_start.strftime('%Y-%m-%d') }} - {{ (week_start + timedelta(days=6)).strftime('%m-%d') }}</strong><a class="button ghost small" href="{{ url_for('schedule', week=next_week.strftime('%Y-%m-%d')) }}">下周 →</a></div></section><div class="schedule-layout"><form method="post" class="editor-form schedule-form"><input type="hidden" name="week" value="{{ week_start.strftime('%Y-%m-%d') }}"><h2>添加日程</h2><label>标题<input required name="title" placeholder="例如：项目评审会议"></label><div class="form-row"><label>开始时间<input required type="datetime-local" name="start_at"></label><label>结束时间<input type="datetime-local" name="end_at"></label></div><label>关联任务<select name="task_id"><option value="">不关联任务</option>{% for task in tasks %}<option value="{{ task.id }}">{{ task.title }}</option>{% endfor %}</select></label><label>备注<textarea name="description" rows="3" placeholder="补充会议链接或准备事项"></textarea></label><button class="button primary large" type="submit">保存日程　→</button></form><div class="week-grid">{% for day in days %}<section class="day-column"><header><strong>{{ day.strftime('%a') }}</strong><span>{{ day.strftime('%m/%d') }}</span></header>{% for item in items if item.start_at.date() == day.date() %}<article class="schedule-card"><time>{{ item.start_at.strftime('%H:%M') }}{% if item.end_at %} - {{ item.end_at.strftime('%H:%M') }}{% endif %}</time><strong>{{ item.title }}</strong>{% if item.task %}<a href="{{ url_for('task_detail', task_id=item.task.id) }}">✓ {{ item.task.title }}</a>{% endif %}{% if item.description %}<p>{{ item.description }}</p>{% endif %}<form method="post" action="{{ url_for('delete_schedule', schedule_id=item.id) }}" onsubmit="return confirm('确定删除这条日程吗？')"><button class="icon-button" title="删除日程">×</button></form></article>{% else %}<div class="day-empty">空闲</div>{% endfor %}</section>{% endfor %}</div></div></div>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}日程安排{% endblock %}
+{% block content %}
+<div class="schedule-page">
+  <section class="page-heading">
+    <div><p class="eyebrow">WEEKLY PLANNER</p><h1>日程安排</h1><p class="subtitle">点击日期或时间格，快速添加日程。</p></div>
+    <div class="week-nav"><a class="button ghost small" href="{{ url_for('schedule', week=previous_week.strftime('%Y-%m-%d')) }}">← 上周</a><strong>{{ week_start.strftime('%Y-%m-%d') }} - {{ (week_start + timedelta(days=6)).strftime('%m-%d') }}</strong><a class="button ghost small" href="{{ url_for('schedule', week=next_week.strftime('%Y-%m-%d')) }}">下周 →</a></div>
+  </section>
+  <div class="calendar-scroll">
+    <div class="calendar-grid">
+      <div class="calendar-corner">时间</div>
+      {% for day in days %}<div class="calendar-day-header" data-date="{{ day.strftime('%Y-%m-%d') }}" role="button" tabindex="0"><strong>{{ day.strftime('%A') }}</strong><span>{{ day.strftime('%m/%d') }}</span></div>{% endfor %}
+      {% for slot in time_slots %}
+      <div class="calendar-time">{{ slot }}</div>
+      {% for day in days %}<div class="calendar-slot" data-date="{{ day.strftime('%Y-%m-%d') }}" data-time="{{ slot }}" role="button" tabindex="0">
+        {% for item in items if item.start_at.strftime('%Y-%m-%d') == day.strftime('%Y-%m-%d') and item.start_at.strftime('%H') == slot[:2] and ('00' if item.start_at.minute < 30 else '30') == slot[3:] %}
+        <article class="schedule-card"><time>{{ item.start_at.strftime('%H:%M') }}{% if item.end_at %} - {{ item.end_at.strftime('%H:%M') }}{% endif %}</time><strong>{{ item.title }}</strong>{% if item.task %}<a href="{{ url_for('task_detail', task_id=item.task.id) }}">✓ {{ item.task.title }}</a>{% endif %}{% if item.description %}<p>{{ item.description }}</p>{% endif %}<form method="post" action="{{ url_for('delete_schedule', schedule_id=item.id) }}"><button class="icon-button" title="删除日程">×</button></form></article>
+        {% endfor %}
+      </div>{% endfor %}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<dialog id="schedule-dialog" class="schedule-dialog">
+  <form method="post" class="editor-form schedule-form">
+    <button type="button" class="dialog-close" data-close-schedule aria-label="关闭">×</button>
+    <input type="hidden" name="week" value="{{ week_start.strftime('%Y-%m-%d') }}">
+    <h2>添加日程</h2>
+    <label>标题<input required name="title" placeholder="例如：项目评审会议"></label>
+    <div class="form-row"><label>开始时间<input required type="datetime-local" name="start_at"></label><label>结束时间<input type="datetime-local" name="end_at"></label></div>
+    <label>关联任务<select name="task_id"><option value="">不关联任务</option>{% for task in tasks %}<option value="{{ task.id }}">{{ task.title }}</option>{% endfor %}</select></label>
+    <label>备注<textarea name="description" rows="3" placeholder="补充会议链接或准备事项"></textarea></label>
+    <button class="button primary large" type="submit">保存日程　→</button>
+  </form>
+</dialog>
+{% endblock %}
