@@ -231,7 +231,8 @@ def index():
         task_query = task_query.filter(or_(Task.title.ilike(f"%{query}%"), Task.description.ilike(f"%{query}%")))
     tasks = task_query.order_by(Task.created_at.desc()).all()
     notes = Note.query.order_by(Note.updated_at.desc()).limit(8).all()
-    return render_template("index.html", tasks=tasks, notes=notes, current_status=status, query=query)
+    upcoming_schedules = Schedule.query.filter(Schedule.start_at >= datetime.now()).order_by(Schedule.start_at).limit(6).all()
+    return render_template("index.html", tasks=tasks, notes=notes, upcoming_schedules=upcoming_schedules, current_status=status, query=query)
 
 
 @app.route("/schedule", methods=["GET", "POST"])
