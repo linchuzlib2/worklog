@@ -296,6 +296,18 @@ def global_search():
     return render_template("search.html", query=query, task_results=task_results, note_results=note_results, file_results=file_results)
 
 
+@app.get("/attachments/<int:attachment_id>/view")
+def view_attachment(attachment_id):
+    attachment = db.get_or_404(Attachment, attachment_id)
+    query = request.args.get("q", "").strip()
+    try:
+        content = extract_attachment_text(storage.download(attachment.object_key), attachment.original_name, attachment.content_type)
+    except (BotoCoreError, ClientError, UnicodeError, ValueError, KeyError, OSError) as error:
+        flash(f"附件读取失败：{error}", "error")
+        return redirect(request.referrer or url_for("global_search", q=query))
+    return render_template("attachment_detail.html", attachment=attachment, content=content, query=query)
+
+
 @app.route("/tasks/new", methods=["GET", "POST"])
 def new_task():
     if request.method == "POST":
