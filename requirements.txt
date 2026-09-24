@@ -4,3 +4,6 @@ boto3==1.40.30
 gunicorn==23.0.0
 python-dotenv==1.1.1
 bleach==6.2.0
+openpyxl==3.1.5
+python-docx==1.1.2
+xlrd==2.0.1

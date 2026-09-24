@@ -6,8 +6,11 @@ from io import BytesIO
 
 import bleach
 import boto3
+import openpyxl
+import xlrd
 from botocore.exceptions import BotoCoreError, ClientError
 from botocore.config import Config
+from docx import Document
 from dotenv import load_dotenv
 from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_sqlalchemy import SQLAlchemy
@@ -180,6 +183,30 @@ def plain_text(value):
     return re.sub(r"<[^>]+>", " ", value or "")
 
 
+def extract_attachment_text(data, filename, content_type):
+    extension = os.path.splitext(filename.lower())[1]
+    if extension == ".docx" or content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        document = Document(BytesIO(data))
+        return "\n".join(paragraph.text for paragraph in document.paragraphs)
+    if extension == ".xlsx" or content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+        workbook = openpyxl.load_workbook(BytesIO(data), read_only=True, data_only=True)
+        return "\n".join(
+            "\t".join(str(cell) for cell in row if cell is not None)
+            for worksheet in workbook.worksheets
+            for row in worksheet.iter_rows(values_only=True)
+        )
+    if extension == ".xls" or content_type == "application/vnd.ms-excel":
+        workbook = xlrd.open_workbook(file_contents=data, on_demand=True)
+        return "\n".join(
+            "\t".join(str(cell) for cell in worksheet.row_values(row_index) if cell != "")
+            for worksheet in workbook.sheets()
+            for row_index in range(worksheet.nrows)
+        )
+    if (content_type or "").startswith("text/"):
+        return data.decode("utf-8", errors="ignore")
+    return ""
+
+
 def migrate_schema():
     inspector = inspect(db.engine)
     columns = {column["name"] for column in inspector.get_columns("attachment")}
@@ -255,13 +282,13 @@ def global_search():
         note_results = Note.query.filter(or_(Note.title.ilike(pattern), Note.content.ilike(pattern))).all()
         candidates = Attachment.query.filter(Attachment.original_name.ilike(pattern)).all()
         for attachment in Attachment.query.order_by(Attachment.created_at.desc()).all():
-            if attachment in candidates or not storage.enabled or not (attachment.content_type or "").startswith("text/"):
+            if attachment in candidates or not storage.enabled:
                 continue
             try:
-                content = storage.download(attachment.object_key).decode("utf-8", errors="ignore")
+                content = extract_attachment_text(storage.download(attachment.object_key), attachment.original_name, attachment.content_type)
                 if query.lower() in content.lower():
                     candidates.append(attachment)
-            except (BotoCoreError, ClientError, UnicodeError):
+            except (BotoCoreError, ClientError, UnicodeError, ValueError, KeyError, OSError):
                 continue
         file_results = candidates
     return render_template("search.html", query=query, task_results=task_results, note_results=note_results, file_results=file_results)
