@@ -9,9 +9,9 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from botocore.config import Config
 from dotenv import load_dotenv
-from flask import Flask, flash, redirect, render_template, request, send_file, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import or_
+from sqlalchemy import inspect, or_
 
 load_dotenv()
 
@@ -53,6 +53,15 @@ class Note(db.Model):
     attachments = db.relationship("Attachment", backref="note", cascade="all, delete-orphan", order_by="Attachment.created_at.desc()")
 
 
+class Folder(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey("folder.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    parent = db.relationship("Folder", remote_side=[id], backref=db.backref("children", cascade="all, delete-orphan"))
+    files = db.relationship("Attachment", backref="folder", order_by="Attachment.created_at.desc()")
+
+
 class Attachment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     original_name = db.Column(db.String(255), nullable=False)
@@ -61,6 +70,7 @@ class Attachment(db.Model):
     size = db.Column(db.Integer, default=0)
     task_id = db.Column(db.Integer, db.ForeignKey("task.id"), nullable=True)
     note_id = db.Column(db.Integer, db.ForeignKey("note.id"), nullable=True)
+    folder_id = db.Column(db.Integer, db.ForeignKey("folder.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -149,6 +159,14 @@ def parse_date(value):
     if not value:
         return None
     return datetime.strptime(value, "%Y-%m-%d").date()
+
+
+def migrate_schema():
+    inspector = inspect(db.engine)
+    columns = {column["name"] for column in inspector.get_columns("attachment")}
+    if "folder_id" not in columns:
+        db.session.execute(db.text("ALTER TABLE attachment ADD COLUMN folder_id INTEGER REFERENCES folder(id)"))
+        db.session.commit()
 
 
 @app.context_processor
@@ -269,6 +287,61 @@ def delete_note(note_id):
     return redirect(url_for("index"))
 
 
+@app.route("/files")
+def file_manager():
+    folder_id = request.args.get("folder_id", type=int)
+    folder = db.session.get(Folder, folder_id) if folder_id else None
+    if folder_id and not folder:
+        return redirect(url_for("file_manager"))
+    folders = Folder.query.filter_by(parent_id=folder_id).order_by(Folder.name).all()
+    files = Attachment.query.filter_by(folder_id=folder_id).order_by(Attachment.created_at.desc()).all()
+    breadcrumbs = []
+    current = folder
+    while current:
+        breadcrumbs.append(current)
+        current = current.parent
+    return render_template("file_manager.html", folder=folder, folders=folders, files=files, breadcrumbs=list(reversed(breadcrumbs)))
+
+
+@app.post("/files/folders")
+def create_folder():
+    name = request.form.get("name", "").strip()
+    parent_id = request.form.get("parent_id", type=int) or None
+    if not name:
+        flash("请输入文件夹名称", "error")
+    else:
+        db.session.add(Folder(name=name, parent_id=parent_id))
+        db.session.commit()
+        sync_database()
+        flash("文件夹已创建", "success")
+    return redirect(url_for("file_manager", folder_id=parent_id))
+
+
+@app.post("/files/<int:attachment_id>/move")
+def move_file(attachment_id):
+    attachment = db.get_or_404(Attachment, attachment_id)
+    payload = request.get_json(silent=True) or request.form
+    raw_folder_id = payload.get("folder_id") if hasattr(payload, "get") else None
+    folder_id = int(raw_folder_id) if raw_folder_id not in (None, "", 0, "0") else None
+    if folder_id and not db.session.get(Folder, folder_id):
+        return jsonify({"error": "文件夹不存在"}), 404
+    attachment.folder_id = folder_id or None
+    db.session.commit()
+    sync_database()
+    return jsonify({"ok": True})
+
+
+@app.post("/files/<int:attachment_id>/delete")
+def delete_file(attachment_id):
+    attachment = db.get_or_404(Attachment, attachment_id)
+    storage.delete(attachment.object_key)
+    db.session.delete(attachment)
+    db.session.commit()
+    sync_database()
+    flash("文件已删除", "success")
+    return redirect(request.referrer or url_for("file_manager"))
+
+
 @app.post("/attachments/upload")
 def upload_attachment():
     uploaded = request.files.get("file")
@@ -280,12 +353,13 @@ def upload_attachment():
         return redirect(request.referrer or url_for("index"))
     task_id = request.form.get("task_id", type=int)
     note_id = request.form.get("note_id", type=int)
+    folder_id = request.form.get("folder_id", type=int)
     safe_name = re.sub(r"[^\w.\- ]", "_", uploaded.filename)[:180]
     key = f"attachments/{uuid.uuid4().hex}-{safe_name}"
     try:
         uploaded.stream.seek(0)
         uploaded_size = storage.upload(uploaded, key)
-        attachment = Attachment(original_name=uploaded.filename, object_key=key, content_type=uploaded.content_type or "application/octet-stream", size=uploaded_size, task_id=task_id, note_id=note_id)
+        attachment = Attachment(original_name=uploaded.filename, object_key=key, content_type=uploaded.content_type or "application/octet-stream", size=uploaded_size, task_id=task_id, note_id=note_id, folder_id=folder_id)
         db.session.add(attachment)
         db.session.commit()
         sync_database()
@@ -315,6 +389,7 @@ def health():
 with app.app_context():
     restore_database()
     db.create_all()
+    migrate_schema()
 
 
 if __name__ == "__main__":
