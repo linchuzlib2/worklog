@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: worklog
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    healthCheckPath: /health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: OSS_ENDPOINT
+        sync: false
+      - key: OSS_BUCKET
+        sync: false
+      - key: OSS_REGION
+        value: oss-cn-hangzhou
+      - key: OSS_ACCESS_KEY_ID
+        sync: false
+      - key: OSS_SECRET_ACCESS_KEY
+        sync: false
+      - key: OSS_DATABASE_KEY
+        value: worklog/worklog.db
