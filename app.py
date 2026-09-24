@@ -85,7 +85,9 @@ class ObjectStorage:
     def upload(self, file_storage, key):
         if not self.enabled:
             raise RuntimeError("OSS 尚未配置")
-        self.client.upload_fileobj(file_storage, self.bucket, key, ExtraArgs={"ContentType": file_storage.content_type or "application/octet-stream"})
+        data = file_storage.read()
+        self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentLength=len(data), ContentType=file_storage.content_type or "application/octet-stream")
+        return len(data)
 
     def download(self, key):
         response = self.client.get_object(Bucket=self.bucket, Key=key)
@@ -97,7 +99,7 @@ class ObjectStorage:
 
     def upload_bytes(self, data, key, content_type):
         if self.enabled:
-            self.client.upload_fileobj(BytesIO(data), self.bucket, key, ExtraArgs={"ContentType": content_type})
+            self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentLength=len(data), ContentType=content_type)
 
     def download_optional(self, key):
         if not self.enabled:
@@ -264,8 +266,8 @@ def upload_attachment():
     key = f"attachments/{uuid.uuid4().hex}-{safe_name}"
     try:
         uploaded.stream.seek(0)
-        storage.upload(uploaded, key)
-        attachment = Attachment(original_name=uploaded.filename, object_key=key, content_type=uploaded.content_type or "application/octet-stream", size=request.content_length or 0, task_id=task_id, note_id=note_id)
+        uploaded_size = storage.upload(uploaded, key)
+        attachment = Attachment(original_name=uploaded.filename, object_key=key, content_type=uploaded.content_type or "application/octet-stream", size=uploaded_size, task_id=task_id, note_id=note_id)
         db.session.add(attachment)
         db.session.commit()
         sync_database()
