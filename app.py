@@ -84,6 +84,7 @@ class Schedule(db.Model):
     end_at = db.Column(db.DateTime, nullable=True)
     description = db.Column(db.Text, default="")
     task_id = db.Column(db.Integer, db.ForeignKey("task.id"), nullable=True)
+    completed = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     task = db.relationship("Task", backref=db.backref("schedules", order_by="Schedule.start_at"))
 
@@ -213,6 +214,10 @@ def migrate_schema():
     if "folder_id" not in columns:
         db.session.execute(db.text("ALTER TABLE attachment ADD COLUMN folder_id INTEGER REFERENCES folder(id)"))
         db.session.commit()
+    schedule_columns = {column["name"] for column in inspector.get_columns("schedule")}
+    if "completed" not in schedule_columns:
+        db.session.execute(db.text("ALTER TABLE schedule ADD COLUMN completed BOOLEAN NOT NULL DEFAULT 0"))
+        db.session.commit()
 
 
 @app.context_processor
@@ -225,7 +230,7 @@ def index():
     status = request.args.get("status", "")
     query = request.args.get("q", "").strip()
     task_query = Task.query
-    if status:
+    if status in {"todo", "done"}:
         task_query = task_query.filter_by(status=status)
     if query:
         task_query = task_query.filter(or_(Task.title.ilike(f"%{query}%"), Task.description.ilike(f"%{query}%")))
@@ -269,6 +274,15 @@ def delete_schedule(schedule_id):
     db.session.commit()
     sync_database()
     flash("日程已删除", "success")
+    return redirect(request.referrer or url_for("schedule"))
+
+
+@app.post("/schedule/<int:schedule_id>/status")
+def update_schedule_status(schedule_id):
+    item = db.get_or_404(Schedule, schedule_id)
+    item.completed = request.form.get("completed") == "1"
+    db.session.commit()
+    sync_database()
     return redirect(request.referrer or url_for("schedule"))
 
 
