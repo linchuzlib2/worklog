@@ -564,12 +564,13 @@ def edit_note(note_id):
 
 @app.post("/notes/<int:note_id>/delete")
 def delete_note(note_id):
-    note = db.get_or_404(Note, note_id)
-    for attachment in note.attachments:
-        storage.delete(attachment.object_key)
-    db.session.delete(note)
-    db.session.commit()
-    sync_database()
+    note = db.session.get(Note, note_id)
+    if note:  # 已不存在时静默成功（幂等），避免重复提交报 404
+        for attachment in note.attachments:
+            storage.delete(attachment.object_key)
+        db.session.delete(note)
+        db.session.commit()
+        sync_database()
     flash("笔记已删除", "success")
     return redirect(request.referrer or url_for("index"))
 
