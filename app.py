@@ -251,7 +251,7 @@ def index():
             "done": task.status == "done",
             "priority": task.priority,
             "time_label": task.due_date.strftime("%m月%d日截止") if task.due_date else "",
-            "sort_time": task.due_date or task.created_at,
+            "sort_time": datetime.combine(task.due_date, datetime.min.time()) if task.due_date else task.created_at,
         })
     for item in schedules:
         label = item.start_at.strftime("%m月%d日 %H:%M")
