@@ -572,7 +572,11 @@ def delete_note(note_id):
         db.session.commit()
         sync_database()
     flash("笔记已删除", "success")
-    return redirect(request.referrer or url_for("index"))
+    # 来源页若是被删笔记自己的详情页，则跳回工作台，避免跳转到已失效的地址
+    referrer = request.referrer or ""
+    if f"/notes/{note_id}" in referrer:
+        return redirect(url_for("index"))
+    return redirect(referrer or url_for("index"))
 
 
 @app.route("/notes/<int:note_id>/polish", methods=["POST"])
