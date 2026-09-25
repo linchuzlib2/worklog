@@ -576,7 +576,7 @@ def delete_note(note_id):
 
 @app.route("/notes/<int:note_id>/polish", methods=["POST"])
 def polish_note(note_id):
-    """智谱 AI 润色笔记内容。"""
+    """AI 润色已有笔记：润色后直接保存到数据库。"""
     note = db.get_or_404(Note, note_id)
     payload = request.get_json(silent=True) or {}
     raw = bleach.clean(payload.get("content") or note.content, tags=[], strip=True).strip()
@@ -585,6 +585,32 @@ def polish_note(note_id):
     prompt = (
         "请润色以下笔记内容：修正错别字和标点，理顺语句，让表达更清晰专业，"
         "保留原有结构和要点，不要遗漏信息，不要添加知识库之外的新结论。直接输出润色后的全文，不要解释。\n\n" + raw
+    )
+    try:
+        polished = ai.chat([{"role": "user", "content": prompt}], temperature=0.3)
+    except Exception as error:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(error)}), 502
+    paragraphs = [line.strip() for line in polished.splitlines() if line.strip()]
+    html = "".join(f"<p>{line}</p>" for line in paragraphs)
+    note.content = sanitize_html(html)
+    note.updated_at = datetime.utcnow()
+    db.session.commit()
+    sync_database()
+    return jsonify({"html": note.content, "text": polished})
+
+
+@app.post("/polish")
+def polish_text():
+    """通用 AI 润色：编辑器中的草稿内容（尚未保存为笔记）润色后返回，不落库。"""
+    payload = request.get_json(silent=True) or {}
+    raw = bleach.clean(payload.get("content") or "", tags=[], strip=True).strip()
+    if not raw:
+        return jsonify({"error": "内容为空，无法润色"}), 400
+    prompt = (
+        "请润色以下笔记内容：修正错别字和标点，理顺语句，让表达更清晰专业，"
+        "保留原有结构和要点，不要遗漏信息。直接输出润色后的全文，不要解释。\n\n" + raw
     )
     try:
         polished = ai.chat([{"role": "user", "content": prompt}], temperature=0.3)
