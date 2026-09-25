@@ -4,12 +4,25 @@
 <div class="detail-page note-detail"><a class="back-link" href="{{ url_for('index') }}">← 返回工作台</a>
 	<div class="detail-header"><div><span class="eyebrow">工作笔记</span><h1 data-highlight>{{ note.title }}</h1><div class="detail-meta" data-highlight>更新于 {{ note.updated_at.strftime('%Y-%m-%d %H:%M') }}{% if note.task %} · 关联任务：<a href="{{ url_for('task_detail', task_id=note.task.id) }}">{{ note.task.title }}</a>{% endif %}</div></div><div class="top-actions"><button class="button ghost" id="detail-polish-btn" type="button">✦ AI 润色</button><a class="button ghost" href="{{ url_for('edit_note', note_id=note.id) }}">编辑</a><form method="post" action="{{ url_for('delete_note', note_id=note.id) }}" onsubmit="var b=this.querySelector('button'); b.disabled=true; b.textContent='删除中…'; return confirm('确定删除这篇笔记吗？关联附件也会被删除。')"><button class="button danger" type="submit">删除</button></form></div></div>
 	<div class="rich-content" data-highlight id="note-content">{{ note.content|safe or '<p class="muted">这是一篇空白笔记。</p>'|safe }}</div>
+	<button type="button" id="selection-schedule-btn" hidden>＋ 添加为日程</button>
 	<div class="related-panel"><div class="section-title"><h2>附件 <span class="count">{{ note.attachments|length }}</span></h2></div>
 		{% for attachment in note.attachments %}<div class="attachment-row"><a class="attachment" href="{{ url_for('download_attachment', attachment_id=attachment.id) }}">⌑ <span>{{ attachment.original_name }}</span><small>{{ (attachment.size / 1024)|round(1) }} KB</small></a><form method="post" action="{{ url_for('unlink_attachment', attachment_id=attachment.id) }}" onsubmit="return confirm('解除关联后文件仍保留在文件管理中，确定解除吗？')"><input type="hidden" name="target" value="note"><button class="icon-button" title="解除关联">✕</button></form></div>{% else %}<p class="muted">还没有附件。</p>{% endfor %}
 		<form class="upload-form duplicate-aware-upload" method="post" enctype="multipart/form-data" action="{{ url_for('upload_attachment') }}"><input type="hidden" name="note_id" value="{{ note.id }}"><input type="hidden" name="allow_duplicate" value="0"><input type="file" name="file" required><button class="button ghost small">上传附件</button></form>
 		{% if available_files %}<form class="link-file-form" method="post" action="{{ url_for('link_attachment') }}"><select name="attachment_id" class="attachment-picker">{% for file in available_files %}<option value="{{ file.id }}">{{ file.original_name }}</option>{% endfor %}</select><input type="hidden" name="note_id" value="{{ note.id }}"><button class="button ghost small" type="submit">关联已有文件</button></form>{% endif %}
 	</div>
 </div>
+
+<dialog id="schedule-dialog" class="schedule-dialog">
+  <form method="post" action="{{ url_for('schedule') }}" class="editor-form schedule-form">
+    <button type="button" class="dialog-close" data-close-schedule aria-label="关闭">×</button>
+    <h2>添加日程</h2>
+    <label>标题<input required name="title" id="schedule-title-input" placeholder="例如：项目评审会议"></label>
+    <div class="form-row"><label>开始时间<input required type="datetime-local" name="start_at"></label><label>结束时间<input type="datetime-local" name="end_at"></label></div>
+    <label>关联任务<select name="task_id"><option value="">不关联任务</option>{% for task in tasks %}<option value="{{ task.id }}">{{ task.title }}</option>{% endfor %}</select></label>
+    <label>备注<textarea name="description" rows="3" placeholder="补充会议链接或准备事项"></textarea></label>
+    <button class="button primary large" type="submit">保存日程　→</button>
+  </form>
+</dialog>
 {% endblock %}
 {% block scripts %}<script>document.addEventListener('DOMContentLoaded', function () {
   var btn = document.getElementById('detail-polish-btn');
@@ -28,4 +41,49 @@
       })
       .catch(function () { alert('请求失败，请重试'); btn.textContent = '✦ AI 润色'; btn.disabled = false; });
   });
+
+  // ---- 划选文字直接添加为日程 ----
+  var selBtn = document.getElementById('selection-schedule-btn');
+  var content = document.getElementById('note-content');
+  var dialog = document.getElementById('schedule-dialog');
+  var titleInput = document.getElementById('schedule-title-input');
+  var selectedText = '';
+
+  function hideSelBtn() { selBtn.hidden = true; }
+
+  document.addEventListener('selectionchange', function () {
+    setTimeout(function () {
+      var sel = window.getSelection();
+      var text = sel ? sel.toString().trim() : '';
+      if (!text || text.length > 200 || !sel.rangeCount) { hideSelBtn(); return; }
+      var range = sel.getRangeAt(0);
+      if (!content.contains(range.commonAncestorContainer)) { hideSelBtn(); return; }
+      var rect = range.getBoundingClientRect();
+      if (!rect || (!rect.width && !rect.height)) { hideSelBtn(); return; }
+      selBtn.hidden = false;
+      selBtn.style.top = (window.scrollY + rect.top - 40) + 'px';
+      selBtn.style.left = (window.scrollX + Math.max(8, rect.left)) + 'px';
+      selectedText = text;
+    }, 10);
+  });
+  content.addEventListener('scroll', hideSelBtn);
+  window.addEventListener('scroll', hideSelBtn);
+
+  selBtn.addEventListener('mousedown', function (ev) { ev.preventDefault(); });
+  selBtn.addEventListener('click', function () {
+    hideSelBtn();
+    titleInput.value = selectedText.slice(0, 200);
+    var startInput = dialog.querySelector('input[name="start_at"]');
+    if (startInput && !startInput.value) {
+      var now = new Date();
+      now.setMinutes(now.getMinutes() < 30 ? 30 : 60, 0, 0);
+      startInput.value = now.toISOString().slice(0, 16);
+    }
+    dialog.showModal();
+  });
+
+  dialog.addEventListener('click', function (ev) {
+    if (ev.target === dialog) dialog.close();
+  });
+  dialog.querySelector('[data-close-schedule]').addEventListener('click', function () { dialog.close(); });
 });</script>{% endblock %}

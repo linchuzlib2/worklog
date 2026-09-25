@@ -545,7 +545,7 @@ def new_note():
 @app.route("/notes/<int:note_id>")
 def note_detail(note_id):
     note = db.get_or_404(Note, note_id)
-    return render_template("note_detail.html", note=note, available_files=Attachment.query.order_by(Attachment.original_name).all())
+    return render_template("note_detail.html", note=note, available_files=Attachment.query.order_by(Attachment.original_name).all(), tasks=Task.query.order_by(Task.title).all())
 
 
 @app.route("/notes/<int:note_id>/edit", methods=["GET", "POST"])
