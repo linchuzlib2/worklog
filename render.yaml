@@ -22,7 +22,11 @@ services:
         value: worklog/worklog.db
       - key: ZHIPU_API_KEY
         sync: false
-      - key: ZHIPU_CHAT_MODEL
-        value: glm-4.7-flash
-      - key: ZHIPU_EMBED_MODEL
-        value: embedding-3
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_API_BASE
+        value: https://tokenhub.tencentmaas.com/v1
+      - key: AI_CHAT_MODEL
+        value: hy3
+      - key: AI_EMBED_MODEL
+        sync: false

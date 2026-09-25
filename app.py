@@ -15,7 +15,7 @@ from docx import Document
 from dotenv import load_dotenv
 from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, url_for
 
-import zhipu
+import ai
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, inspect, or_
 
@@ -208,31 +208,42 @@ def chunk_text(text):
 
 
 def embed_document(doc):
-    """为文档分块并写入向量（分批调用嵌入接口，避免批量超限）。"""
+    """为文档分块并写入向量（无向量接口时降级为空向量，检索走关键词匹配）。"""
     KnowledgeChunk.query.filter_by(doc_id=doc.id).delete()
     chunks = chunk_text(doc.content)
     vectors = []
-    for start in range(0, len(chunks), 16):
-        vectors.extend(zhipu.embed(chunks[start:start + 16]))
-    for index, (piece, vector) in enumerate(zip(chunks, vectors)):
+    try:
+        for start in range(0, len(chunks), 16):
+            vectors.extend(ai.embed(chunks[start:start + 16]))
+    except ai.EmbedUnavailable:
+        vectors = []
+    for index, piece in enumerate(chunks):
+        vector = vectors[index] if index < len(vectors) else []
         doc.chunks.append(KnowledgeChunk(chunk_index=index, text=piece, embedding=json.dumps(vector)))
     db.session.commit()
 
 
 def search_knowledge(question, top_k=5):
-    """检索与问题最相关的知识块，返回 (chunk, doc, score) 列表。"""
-    query_vector = zhipu.embed([question])[0]
+    """检索与问题最相关的知识块：优先向量相似，无向量时降级关键词匹配。"""
+    query_tokens = ai.tokenize(question)
+    try:
+        query_vector = ai.embed([question])[0]
+    except ai.EmbedUnavailable:
+        query_vector = None
     results = []
     for chunk in KnowledgeChunk.query.all():
-        vector = json.loads(chunk.embedding)
-        score = sum(a * b for a, b in zip(query_vector, vector))
+        vector = json.loads(chunk.embedding) if chunk.embedding else []
+        if query_vector and vector:
+            score = sum(a * b for a, b in zip(query_vector, vector))
+        else:
+            score = ai.keyword_score(query_tokens, ai.tokenize(chunk.text))
         results.append((chunk, chunk.doc, score))
     results.sort(key=lambda item: item[2], reverse=True)
     return results[:top_k]
 
 
 def ask_knowledge(question):
-    """RAG：检索知识库 → 组装上下文 → 智谱生成回答。"""
+    """RAG：检索知识库 → 组装上下文 → AI 生成回答。"""
     if not KnowledgeDoc.query.count():
         return {"answer": "知识库还是空的，请先上传制度文件或管理办法。", "sources": []}
     hits = search_knowledge(question)
@@ -244,7 +255,7 @@ def ask_knowledge(question):
         "如果资料中没有相关内容，请如实说明知识库中没有找到，并基于常识简要回答。回答使用简体中文。\n\n"
         "=== 知识库资料 ===\n" + "\n\n".join(context_blocks) + "\n\n=== 问题 ===\n" + question
     )
-    answer = zhipu.chat([{"role": "user", "content": prompt}], temperature=0.2)
+    answer = ai.chat([{"role": "user", "content": prompt}], temperature=0.2)
     sources = [{"doc": doc.title, "snippet": chunk.text[:120]} for chunk, doc, _ in hits]
     return {"answer": answer, "sources": sources}
 
@@ -576,7 +587,7 @@ def polish_note(note_id):
         "保留原有结构和要点，不要遗漏信息，不要添加知识库之外的新结论。直接输出润色后的全文，不要解释。\n\n" + raw
     )
     try:
-        polished = zhipu.chat([{"role": "user", "content": prompt}], temperature=0.3)
+        polished = ai.chat([{"role": "user", "content": prompt}], temperature=0.3)
     except Exception as error:
         import traceback
         traceback.print_exc()
@@ -590,7 +601,7 @@ def polish_note(note_id):
 @app.get("/knowledge")
 def knowledge():
     docs = KnowledgeDoc.query.order_by(KnowledgeDoc.created_at.desc()).all()
-    return render_template("knowledge.html", docs=docs, zhipu_ready=zhipu.enabled())
+    return render_template("knowledge.html", docs=docs, ai_ready=ai.enabled())
 
 
 @app.post("/knowledge/upload")
