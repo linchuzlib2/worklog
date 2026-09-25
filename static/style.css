@@ -39,3 +39,4 @@
 /* Long unbroken strings (emails/URLs) overflow fix */
 .note-card{overflow:hidden}.note-card>div{min-width:0}
 .note-card p,.note-card h3,.task-info p,.task-name,.note-list p{overflow-wrap:anywhere;word-break:break-word}
+.result-type.schedule{background:var(--mint);color:var(--green)}

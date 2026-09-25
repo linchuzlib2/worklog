@@ -331,11 +331,13 @@ def global_search():
     query = request.args.get("q", "").strip()
     task_results = []
     note_results = []
+    schedule_results = []
     file_results = []
     if query:
         pattern = f"%{query}%"
         task_results = Task.query.filter(or_(Task.title.ilike(pattern), Task.description.ilike(pattern))).all()
         note_results = Note.query.filter(or_(Note.title.ilike(pattern), Note.content.ilike(pattern))).all()
+        schedule_results = Schedule.query.filter(or_(Schedule.title.ilike(pattern), Schedule.description.ilike(pattern))).order_by(Schedule.start_at).all()
         candidates = Attachment.query.filter(Attachment.original_name.ilike(pattern)).all()
         for attachment in Attachment.query.order_by(Attachment.created_at.desc()).all():
             if attachment in candidates or not storage.enabled:
@@ -347,7 +349,7 @@ def global_search():
             except (BotoCoreError, ClientError, UnicodeError, ValueError, KeyError, OSError):
                 continue
         file_results = candidates
-    return render_template("search.html", query=query, task_results=task_results, note_results=note_results, file_results=file_results)
+    return render_template("search.html", query=query, task_results=task_results, note_results=note_results, schedule_results=schedule_results, file_results=file_results)
 
 
 @app.get("/attachments/<int:attachment_id>/view")
