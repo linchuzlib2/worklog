@@ -325,7 +325,7 @@ def schedule():
     week_end = week_start + timedelta(days=7)
     items = Schedule.query.filter(Schedule.start_at >= week_start, Schedule.start_at < week_end).order_by(Schedule.start_at).all()
     days = [week_start + timedelta(days=index) for index in range(7)]
-    time_slots = [f"{hour:02d}:{minute:02d}" for hour in range(24) for minute in (0, 30)]
+    time_slots = [f"{hour:02d}:{minute:02d}" for hour in range(6, 25) for minute in (0, 30)]
     return render_template("schedule.html", items=items, days=days, time_slots=time_slots, week_start=week_start, previous_week=week_start - timedelta(days=7), next_week=week_start + timedelta(days=7), tasks=Task.query.order_by(Task.title).all())
 
 
