@@ -13,7 +13,7 @@
       <h2>知识文档 ({{ docs|length }})</h2>
       <form class="kb-upload" method="post" action="{{ url_for('knowledge_upload') }}" enctype="multipart/form-data">
         <label>文档标题<input name="title" placeholder="例如：员工差旅费管理办法（留空则用文件名）"></label>
-        <label>上传文件（.txt / .md / .docx）<input type="file" name="file" accept=".txt,.md,.docx"></label>
+        <label>上传文件（.txt / .md / .docx / .pdf）<input type="file" name="file" accept=".txt,.md,.docx,.pdf"></label>
         <label>或直接粘贴文本<textarea name="content" rows="4" placeholder="粘贴制度、办法、流程说明等文本内容..."></textarea></label>
         <button class="button primary" type="submit">导入知识库 →</button>
       </form>

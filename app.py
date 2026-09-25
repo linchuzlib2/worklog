@@ -667,10 +667,22 @@ def _knowledge_upload_inner():
             import docx
             document = docx.Document(BytesIO(upload.read()))
             content = "\n".join(p.text for p in document.paragraphs if p.text.strip())
+        elif lower.endswith(".pdf"):
+            from pypdf import PdfReader
+            reader = PdfReader(BytesIO(upload.read()))
+            pages = []
+            for page in reader.pages:
+                text = page.extract_text() or ""
+                if text.strip():
+                    pages.append(text)
+            content = "\n".join(pages)
+            if not content.strip():
+                flash("该 PDF 提取不到文字（可能是扫描件/图片版），请改用可复制文字的 PDF 或粘贴文本", "error")
+                return redirect(url_for("knowledge"))
         elif lower.endswith((".txt", ".md")):
             content = upload.read().decode("utf-8", errors="ignore")
         else:
-            flash("仅支持 .txt / .md / .docx 文件，或直接粘贴文本", "error")
+            flash("仅支持 .txt / .md / .docx / .pdf 文件，或直接粘贴文本", "error")
             return redirect(url_for("knowledge"))
     elif pasted:
         content = pasted
