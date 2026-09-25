@@ -64,7 +64,7 @@
     node.w = nodeWidth(node);
     if (!node.children || !node.children.length) { node.subH = NH; return; }
     var total = 0;
-    node.children.forEach(function (c) { measure(c); total += c.subH; });
+    node.children.forEach(function (c, i) { c.ci = i; measure(c); total += c.subH; });
     total += VGAP * (node.children.length - 1);
     node.subH = Math.max(NH, total);
   }
@@ -84,16 +84,27 @@
     if (text !== undefined) e.textContent = text;
     return e;
   }
+  var PALETTE = [
+    { fill: '#dcefe5', text: '#238363' }, // green
+    { fill: '#fde8df', text: '#c65d4d' }, // coral
+    { fill: '#fdf3d7', text: '#a07818' }, // amber
+    { fill: '#e3e8f7', text: '#4a5fb5' }, // blue
+    { fill: '#f3e3f5', text: '#8a4f96' }, // purple
+    { fill: '#e0f0f2', text: '#2a7f8f' }, // teal
+    { fill: '#f7e5e8', text: '#b04a6a' }, // pink
+    { fill: '#e8ecdf', text: '#6a7a3a' }  // olive
+  ];
   function nodeFill(n) {
     if (n.root) return '#263638';
     if (n.status === 'done') return '#e4ebe6';
-    return { high: '#fde8df', medium: '#dcefe5', low: '#f2f4f1' }[n.priority] || '#dcefe5';
+    return PALETTE[(n.ci || 0) % PALETTE.length].fill;
   }
   function nodeColor(n) {
     if (n.root) return '#fff';
     if (n.status === 'done') return '#9aa8a0';
-    return { high: '#c65d4d', medium: '#238363', low: '#7d8786' }[n.priority] || '#238363';
+    return PALETTE[(n.ci || 0) % PALETTE.length].text;
   }
+  var PRIORITY_STROKE = { high: '#c65d4d', medium: '#238363', low: '#b8c6c0' };
 
   // ---- inline title edit (double click) ----
   function startEdit(node) {
@@ -308,12 +319,18 @@
 
   // ---- selection & full edit panel ----
   function select(node) {
-    if (selected && selected.__el) selected.__el.classList.remove('selected');
-    if (selected && selected.__el) selected.__el.querySelector('rect').setAttribute('stroke', 'transparent');
+    if (selected && selected.__el) {
+      var r = selected.__el.querySelector('rect');
+      selected.__el.classList.remove('selected');
+      r.setAttribute('stroke', PRIORITY_STROKE[selected.priority] || '#238363');
+      r.setAttribute('stroke-width', 1.2);
+    }
     selected = node;
     if (node && node.__el) {
+      var r2 = node.__el.querySelector('rect');
       node.__el.classList.add('selected');
-      node.__el.querySelector('rect').setAttribute('stroke', '#238363');
+      r2.setAttribute('stroke', '#238363');
+      r2.setAttribute('stroke-width', 2.5);
     }
     refreshPanel();
   }
@@ -450,7 +467,7 @@
       var g = el('g', { class: 'map-node' + (node === selected ? ' selected' : '') + (node === root ? ' root-node' : ''), transform: 'translate(' + node.x + ',' + (node.y - NH / 2) + ')' });
       g.__node = node;
       node.__el = g;
-      g.appendChild(el('rect', { width: node.w, height: NH, rx: 9, fill: nodeFill(node), stroke: node === selected ? '#238363' : 'transparent', 'stroke-width': 2 }));
+      g.appendChild(el('rect', { width: node.w, height: NH, rx: 9, fill: nodeFill(node), stroke: node === selected ? '#238363' : (PRIORITY_STROKE[node.priority] || '#238363'), 'stroke-width': node === selected ? 2.5 : 1.2 }));
       var badges = nodeBadges(node);
       var badgeStr = badges.join(' ');
       var avail = node.w - 24 - (badges.length ? badgeStr.length * 6 + 14 : 0);
