@@ -213,12 +213,18 @@
     node.notes.forEach(function (n) {
       html += '<div class="panel-item"><a href="/notes/' + n.id + '" target="_blank">▤ ' + esc(n.title) + '</a><button class="icon-button" data-panel="unlink-note" data-id="' + n.id + '" title="解除关联">✕</button></div>';
     });
+    html += '<button type="button" class="mm-btn panel-btn link-toggle" data-link-toggle="note">＋ 关联笔记</button>';
+    html += '<div class="link-collapsible" data-link-area="note" hidden>';
     html += noteOptions ? '<form id="mm-link-note" class="panel-form"><select name="item_id">' + noteOptions + '</select><button type="submit" class="button ghost small">关联</button></form>' : '<p class="muted small">没有更多可关联的笔记。</p>';
+    html += '</div>';
     html += '<h3>关联附件 (' + node.attachments.length + ')</h3>';
     node.attachments.forEach(function (a) {
       html += '<div class="panel-item"><a href="/attachments/' + a.id + '" target="_blank">⌑ ' + esc(a.name) + '</a><button class="icon-button" data-panel="unlink-att" data-id="' + a.id + '" title="解除关联">✕</button></div>';
     });
+    html += '<button type="button" class="mm-btn panel-btn link-toggle" data-link-toggle="attachment">＋ 关联附件</button>';
+    html += '<div class="link-collapsible" data-link-area="attachment" hidden>';
     html += attOptions ? '<form id="mm-link-att" class="panel-form"><select name="item_id">' + attOptions + '</select><button type="submit" class="button ghost small">关联</button></form>' : '<p class="muted small">没有更多可关联的附件。</p>';
+    html += '</div>';
     html += '<h3>危险操作</h3>';
     html += '<button class="button danger small" data-panel="delete-node">－ 仅删此节点（子级提升）</button> ';
     html += '<button class="button danger small" data-panel="delete-tree">✕ 删除节点及子树</button>';
@@ -245,6 +251,19 @@
       ev.preventDefault();
       fetch('/mindmap/tasks/' + node.id + '/link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'attachment', item_id: Number(new FormData(linkAtt).get('item_id')) }) })
         .then(function () { location.reload(); });
+    });
+    panel.querySelectorAll('[data-link-toggle]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var area = panel.querySelector('[data-link-area="' + btn.dataset.linkToggle + '"]');
+        if (!area) return;
+        area.hidden = !area.hidden;
+        var open = !area.hidden;
+        btn.textContent = (open ? '－ 收起' : '＋ ') + (btn.dataset.linkToggle === 'note' ? '关联笔记' : '关联附件');
+        if (open) {
+          var sel = area.querySelector('select');
+          if (sel) { sel.focus(); }
+        }
+      });
     });
     panel.querySelectorAll('[data-panel]').forEach(function (btn) {
       btn.addEventListener('click', function () {
