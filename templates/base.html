@@ -20,6 +20,7 @@
       <a class="nav-link {% if request.endpoint in ['file_manager', 'create_folder', 'move_file', 'delete_file'] %}active{% endif %}" href="{{ url_for('file_manager') }}"><span>⌑</span>文件</a>
       <a class="nav-link {% if request.endpoint in ['schedule', 'delete_schedule'] %}active{% endif %}" href="{{ url_for('schedule') }}"><span>◷</span>日程</a>
       <a class="nav-link {% if request.endpoint == 'global_search' %}active{% endif %}" href="{{ url_for('global_search') }}"><span>⌕</span>搜索</a>
+      <a class="nav-link {% if request.endpoint == 'knowledge' %}active{% endif %}" href="{{ url_for('knowledge') }}"><span>◈</span>知识库</a>
     </nav>
     <div class="sidebar-bottom"><div class="storage-status"><i class="dot {% if oss_enabled %}online{% endif %}"></i>{{ 'OSS 存储已连接' if oss_enabled else '等待配置 OSS' }}</div><small>Daily work log</small></div>
   </aside>
@@ -30,5 +31,6 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
   <script src="{{ url_for('static', filename='app.js', v=static_version('app.js')) }}"></script>
+  {% block scripts %}{% endblock %}
 </body>
 </html>
