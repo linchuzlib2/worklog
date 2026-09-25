@@ -394,6 +394,26 @@ def index():
                            today_items=today_items, today_label=today.strftime("%m月%d日"))
 
 
+@app.get("/api/reminders")
+def api_reminders():
+    """到点日程提醒：返回最近 5 分钟内开始且未完成的日程，前端轮询弹窗提醒。"""
+    now = datetime.now()
+    window_start = now - timedelta(minutes=5)
+    items = (
+        Schedule.query
+        .filter(Schedule.completed.is_(False), Schedule.start_at <= now, Schedule.start_at >= window_start)
+        .order_by(Schedule.start_at)
+        .all()
+    )
+    return jsonify([{
+        "id": item.id,
+        "title": item.title,
+        "time_label": item.start_at.strftime("%H:%M") + (f" - {item.end_at.strftime('%H:%M')}" if item.end_at else ""),
+        "task": item.task.title if item.task else "",
+        "description": (item.description or "")[:100],
+    } for item in items])
+
+
 @app.route("/schedule", methods=["GET", "POST"])
 def schedule():
     if request.method == "POST":

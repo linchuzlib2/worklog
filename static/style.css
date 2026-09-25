@@ -7,6 +7,18 @@
 #selection-schedule-btn{position:absolute;z-index:60;border:0;border-radius:8px;background:#2f7a5f;color:#fff;padding:7px 14px;font-size:13px;cursor:pointer;box-shadow:0 6px 20px #16262240}
 #selection-schedule-btn:hover{background:#38916f}
 #selection-schedule-btn[hidden]{display:none}
+/* 日程到点提醒弹窗（全局右下角） */
+.reminder-popup{position:fixed;right:20px;bottom:20px;z-index:9990;animation:reminder-in .3s ease}
+.reminder-popup[hidden]{display:none}
+@keyframes reminder-in{from{transform:translateY(16px);opacity:0}to{transform:none;opacity:1}}
+.reminder-card{width:300px;background:#fff;border:1px solid var(--line);border-left:4px solid #2f7a5f;border-radius:10px;box-shadow:0 14px 44px #16262238;overflow:hidden}
+.reminder-head{display:flex;justify-content:space-between;align-items:center;background:var(--mint);color:var(--green);font-size:12px;font-weight:700;padding:9px 12px}
+.reminder-close{border:0;background:transparent;color:var(--muted);font-size:18px;cursor:pointer;line-height:1}
+.reminder-body{padding:12px 14px 6px;display:flex;flex-direction:column;gap:4px}
+.reminder-body strong{font-size:15px;color:var(--ink)}
+.reminder-time{font-size:13px;color:var(--green);font-weight:600}
+.reminder-body small{font-size:12px;color:var(--muted)}
+.reminder-actions{display:flex;justify-content:flex-end;gap:8px;padding:8px 12px 12px}
 @media(max-width:850px){.calendar-grid{grid-template-columns:58px repeat(7,minmax(120px,1fr));min-width:900px}.calendar-corner,.calendar-day-header{min-height:56px;padding:10px 6px}.calendar-slot{min-height:40px}.schedule-dialog .schedule-form{padding:24px 18px}}
 .calendar-scroll{width:100%}.calendar-grid{width:100%}
 .schedule-card.completed{opacity:.62;background:#eef3f0}.schedule-card>.check{position:absolute;right:22px;top:4px;width:20px;height:20px}.schedule-card>form:first-child{display:contents}.schedule-card small{display:block;color:var(--muted);font-size:10px;margin-top:5px}

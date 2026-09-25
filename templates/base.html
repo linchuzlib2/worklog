@@ -31,6 +31,59 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
   <script src="{{ url_for('static', filename='app.js', v=static_version('app.js')) }}"></script>
+  <div id="schedule-reminder" class="reminder-popup" hidden>
+    <div class="reminder-card">
+      <div class="reminder-head"><span>◷ 日程提醒</span><button type="button" class="reminder-close" aria-label="关闭">×</button></div>
+      <div class="reminder-body"></div>
+      <div class="reminder-actions"><a class="button ghost small" href="{{ url_for('schedule') }}">查看日程</a><button type="button" class="button primary small reminder-ok">知道了</button></div>
+    </div>
+  </div>
+  <script>
+  (function () {
+    var KEY = 'reminded_schedule_ids';
+    var popup = document.getElementById('schedule-reminder');
+    var body = popup.querySelector('.reminder-body');
+    var queue = [], current = null, timer = null;
+    function shown() {
+      try { return new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); } catch (e) { return new Set(); }
+    }
+    function markShown(id) {
+      var set = shown(); set.add(id);
+      try { localStorage.setItem(KEY, JSON.stringify(Array.from(set).slice(-300))); } catch (e) {}
+    }
+    function check() {
+      fetch('/api/reminders').then(function (r) { return r.json(); }).then(function (items) {
+        var seen = shown();
+        items.forEach(function (it) { if (!seen.has(it.id) && queue.indexOf(it) < 0 && it.id !== (current && current.id)) queue.push(it); });
+        showNext();
+      }).catch(function () {});
+    }
+    function showNext() {
+      if (current || !queue.length) return;
+      current = queue.shift();
+      markShown(current.id);
+      body.textContent = '';
+      var strong = document.createElement('strong'); strong.textContent = current.title;
+      var time = document.createElement('span'); time.className = 'reminder-time'; time.textContent = current.time_label;
+      body.appendChild(strong); body.appendChild(time);
+      if (current.task) { var t = document.createElement('small'); t.textContent = '关联任务：' + current.task; body.appendChild(t); }
+      if (current.description) { var d = document.createElement('small'); d.textContent = current.description; body.appendChild(d); }
+      popup.hidden = false;
+      clearTimeout(timer);
+      timer = setTimeout(closePopup, 60000); // 1 分钟未操作自动收起
+    }
+    function closePopup() {
+      clearTimeout(timer);
+      popup.hidden = true;
+      current = null;
+      setTimeout(showNext, 350);
+    }
+    popup.querySelector('.reminder-ok').addEventListener('click', closePopup);
+    popup.querySelector('.reminder-close').addEventListener('click', closePopup);
+    setInterval(check, 30000);
+    check();
+  })();
+  </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>
