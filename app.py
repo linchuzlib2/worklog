@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import uuid
@@ -13,6 +14,8 @@ from botocore.config import Config
 from docx import Document
 from dotenv import load_dotenv
 from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, url_for
+
+import zhipu
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, inspect, or_
 
@@ -91,6 +94,23 @@ class Schedule(db.Model):
     task = db.relationship("Task", backref=db.backref("schedules", order_by="Schedule.start_at"))
 
 
+class KnowledgeDoc(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    filename = db.Column(db.String(255), default="")
+    content = db.Column(db.Text, default="")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    chunks = db.relationship("KnowledgeChunk", backref="doc", cascade="all, delete-orphan", order_by="KnowledgeChunk.chunk_index")
+
+
+class KnowledgeChunk(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    doc_id = db.Column(db.Integer, db.ForeignKey("knowledge_doc.id"), nullable=False)
+    chunk_index = db.Column(db.Integer, nullable=False)
+    text = db.Column(db.Text, nullable=False)
+    embedding = db.Column(db.Text, nullable=False)  # JSON 数组
+
+
 class ObjectStorage:
     def __init__(self):
         self.bucket = os.getenv("OSS_BUCKET")
@@ -166,6 +186,66 @@ def sync_database():
     if storage.enabled and os.path.exists(database_path()):
         with open(database_path(), "rb") as database_file:
             storage.upload_bytes(database_file.read(), os.getenv("OSS_DATABASE_KEY", "worklog/worklog.db"), "application/x-sqlite3")
+
+
+# ---- 知识库 RAG ----
+CHUNK_SIZE = 500
+CHUNK_OVERLAP = 60
+
+
+def chunk_text(text):
+    text = re.sub(r"\s+\n", "\n", text.strip())
+    chunks = []
+    start = 0
+    while start < len(text):
+        piece = text[start:start + CHUNK_SIZE]
+        if len(piece) < CHUNK_SIZE // 3 and chunks:
+            chunks[-1] += piece
+        else:
+            chunks.append(piece)
+        start += CHUNK_SIZE - CHUNK_OVERLAP
+    return [c for c in chunks if c.strip()]
+
+
+def embed_document(doc):
+    """为文档分块并写入向量。"""
+    KnowledgeChunk.query.filter_by(doc_id=doc.id).delete()
+    chunks = chunk_text(doc.content)
+    if chunks:
+        vectors = zhipu.embed(chunks)
+        for index, (piece, vector) in enumerate(zip(chunks, vectors)):
+            doc.chunks.append(KnowledgeChunk(chunk_index=index, text=piece, embedding=json.dumps(vector)))
+    db.session.commit()
+
+
+def search_knowledge(question, top_k=5):
+    """检索与问题最相关的知识块，返回 (chunk, doc, score) 列表。"""
+    query_vector = zhipu.embed([question])[0]
+    results = []
+    for chunk in KnowledgeChunk.query.all():
+        vector = json.loads(chunk.embedding)
+        score = sum(a * b for a, b in zip(query_vector, vector))
+        results.append((chunk, chunk.doc, score))
+    results.sort(key=lambda item: item[2], reverse=True)
+    return results[:top_k]
+
+
+def ask_knowledge(question):
+    """RAG：检索知识库 → 组装上下文 → 智谱生成回答。"""
+    if not KnowledgeDoc.query.count():
+        return {"answer": "知识库还是空的，请先上传制度文件或管理办法。", "sources": []}
+    hits = search_knowledge(question)
+    context_blocks = []
+    for chunk, doc, _ in hits:
+        context_blocks.append(f"【{doc.title}】\n{chunk.text}")
+    prompt = (
+        "你是企业制度助理。请优先根据下面的知识库资料回答问题；"
+        "如果资料中没有相关内容，请如实说明知识库中没有找到，并基于常识简要回答。回答使用简体中文。\n\n"
+        "=== 知识库资料 ===\n" + "\n\n".join(context_blocks) + "\n\n=== 问题 ===\n" + question
+    )
+    answer = zhipu.chat([{"role": "user", "content": prompt}], temperature=0.2)
+    sources = [{"doc": doc.title, "snippet": chunk.text[:120]} for chunk, doc, _ in hits]
+    return {"answer": answer, "sources": sources}
 
 
 def sanitize_html(value):
@@ -477,6 +557,102 @@ def delete_note(note_id):
         storage.delete(attachment.object_key)
     db.session.delete(note)
     db.session.commit()
+    sync_database()
+    flash("笔记已删除", "success")
+    return redirect(request.referrer or url_for("index"))
+
+
+@app.route("/notes/<int:note_id>/polish", methods=["POST"])
+def polish_note(note_id):
+    """智谱 AI 润色笔记内容。"""
+    note = db.get_or_404(Note, note_id)
+    payload = request.get_json(silent=True) or {}
+    raw = bleach.clean(payload.get("content") or note.content, tags=[], strip=True).strip()
+    if not raw:
+        return jsonify({"error": "笔记内容为空，无法润色"}), 400
+    prompt = (
+        "请润色以下笔记内容：修正错别字和标点，理顺语句，让表达更清晰专业，"
+        "保留原有结构和要点，不要遗漏信息，不要添加知识库之外的新结论。直接输出润色后的全文，不要解释。\n\n" + raw
+    )
+    try:
+        polished = zhipu.chat([{"role": "user", "content": prompt}], temperature=0.3)
+    except zhipu.ZhipuError as error:
+        return jsonify({"error": str(error)}), 502
+    paragraphs = [line.strip() for line in polished.splitlines() if line.strip()]
+    html = "".join(f"<p>{line}</p>" for line in paragraphs)
+    return jsonify({"html": html, "text": polished})
+
+
+# ---- 知识库 ----
+@app.get("/knowledge")
+def knowledge():
+    docs = KnowledgeDoc.query.order_by(KnowledgeDoc.created_at.desc()).all()
+    return render_template("knowledge.html", docs=docs, zhipu_ready=zhipu.enabled())
+
+
+@app.post("/knowledge/upload")
+def knowledge_upload():
+    title = (request.form.get("title") or "").strip()
+    pasted = (request.form.get("content") or "").strip()
+    content = ""
+    filename = ""
+    upload = request.files.get("file")
+    if upload and upload.filename:
+        filename = upload.filename
+        if not title:
+            title = os.path.splitext(filename)[0]
+        lower = filename.lower()
+        if lower.endswith(".docx"):
+            import docx
+            document = docx.Document(BytesIO(upload.read()))
+            content = "\n".join(p.text for p in document.paragraphs if p.text.strip())
+        elif lower.endswith((".txt", ".md")):
+            content = upload.read().decode("utf-8", errors="ignore")
+        else:
+            flash("仅支持 .txt / .md / .docx 文件，或直接粘贴文本", "error")
+            return redirect(url_for("knowledge"))
+    elif pasted:
+        content = pasted
+        if not title:
+            title = "未命名文档"
+    if not content.strip():
+        flash("请上传文件或粘贴文本内容", "error")
+        return redirect(url_for("knowledge"))
+    doc = KnowledgeDoc(title=title[:200], filename=filename, content=content)
+    db.session.add(doc)
+    db.session.commit()
+    try:
+        embed_document(doc)
+    except zhipu.ZhipuError as error:
+        db.session.delete(doc)
+        db.session.commit()
+        flash(f"向量化失败：{error}", "error")
+        return redirect(url_for("knowledge"))
+    sync_database()
+    flash(f"已导入「{doc.title}」（{doc.chunks.count()} 个知识块）", "success")
+    return redirect(url_for("knowledge"))
+
+
+@app.post("/knowledge/doc/<int:doc_id>/delete")
+def knowledge_delete(doc_id):
+    doc = db.get_or_404(KnowledgeDoc, doc_id)
+    db.session.delete(doc)
+    db.session.commit()
+    sync_database()
+    flash("文档已删除", "success")
+    return redirect(url_for("knowledge"))
+
+
+@app.post("/knowledge/ask")
+def knowledge_ask():
+    question = (request.get_json(silent=True) or {}).get("question", "").strip()
+    if not question:
+        return jsonify({"error": "请输入问题"}), 400
+    try:
+        result = ask_knowledge(question)
+    except zhipu.ZhipuError as error:
+        return jsonify({"error": str(error)}), 502
+    return jsonify(result)
     sync_database()
     flash("笔记已删除", "success")
     return redirect(url_for("index"))

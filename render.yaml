@@ -20,3 +20,9 @@ services:
         sync: false
       - key: OSS_DATABASE_KEY
         value: worklog/worklog.db
+      - key: ZHIPU_API_KEY
+        sync: false
+      - key: ZHIPU_CHAT_MODEL
+        value: glm-4-flash
+      - key: ZHIPU_EMBED_MODEL
+        value: embedding-3
