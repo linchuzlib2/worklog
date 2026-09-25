@@ -4,7 +4,7 @@ import os
 import requests
 
 API_BASE = "https://open.bigmodel.cn/api/paas/v4"
-CHAT_MODEL = os.getenv("ZHIPU_CHAT_MODEL", "glm-4-flash")
+CHAT_MODEL = os.getenv("ZHIPU_CHAT_MODEL", "glm-4.7-flash")
 EMBED_MODEL = os.getenv("ZHIPU_EMBED_MODEL", "embedding-3")
 TIMEOUT = 60
 

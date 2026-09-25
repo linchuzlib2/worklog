@@ -23,6 +23,6 @@ services:
       - key: ZHIPU_API_KEY
         sync: false
       - key: ZHIPU_CHAT_MODEL
-        value: glm-4-flash
+        value: glm-4.7-flash
       - key: ZHIPU_EMBED_MODEL
         value: embedding-3
