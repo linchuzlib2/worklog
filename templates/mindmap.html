@@ -2,7 +2,7 @@
 {% block title %}任务导图{% endblock %}
 {% block content %}
 <div class="mindmap-page">
-<section class="page-heading"><div><p class="eyebrow">MIND MAP</p><h1>任务思维导图</h1><p class="subtitle">点击节点查看详情，添加子节点无限展开，节点可关联笔记和附件。</p></div><div class="top-actions"><form method="post" action="{{ url_for('mindmap_create_task') }}" class="inline-form"><input name="title" required placeholder="新任务节点名称"><input type="hidden" name="parent_id" value=""><button class="button primary">＋ 添加根节点</button></form></div></section>
+<section class="page-heading"><div><p class="eyebrow">MIND MAP</p><h1>任务思维导图</h1><p class="subtitle">任务的创建与编辑都在这里完成，无限层级节点，可关联笔记和附件。</p></div><div class="top-actions"><form method="post" action="{{ url_for('mindmap_create_task') }}" class="inline-form"><input name="title" required placeholder="新任务节点名称"><input type="hidden" name="parent_id" value=""><button class="button primary">＋ 添加根节点</button></form></div></section>
 <div class="mindmap-layout">
   <div class="map-canvas-wrap"><svg id="map-canvas"></svg></div>
   <aside class="map-panel" id="map-panel">
@@ -113,11 +113,18 @@
     var attOptions = window.__allAttachments.filter(function (a) { return linkedAttIds.indexOf(a.id) < 0; })
       .map(function (a) { return '<option value="' + a.id + '">' + esc(a.name) + '</option>'; }).join('');
     var html = '';
-    html += '<div class="panel-head"><span class="status-label ' + node.status + '">' + (node.status === 'done' ? '已完成' : '待处理') + '</span><h2>' + esc(node.title) + '</h2></div>';
+    html += '<div class="panel-head"><span class="status-label ' + node.status + '">' + (node.status === 'done' ? '已完成' : (node.status === 'doing' ? '进行中' : '待处理')) + '</span><h2>' + esc(node.title) + '</h2></div>';
     html += '<a class="button ghost small" href="/tasks/' + node.id + '">打开任务详情 →</a>';
     html += '<form method="post" action="/tasks/' + node.id + '/status"><input type="hidden" name="status" value="' + (node.status === 'done' ? 'todo' : 'done') + '"><input type="hidden" name="next" value="/mindmap"><button class="button ghost small panel-btn">' + (node.status === 'done' ? '标记为待处理' : '标记为已完成') + '</button></form>';
+    html += '<h3>编辑任务</h3>';
+    html += '<form method="post" action="/mindmap/tasks/' + node.id + '/update" class="edit-form">';
+    html += '<label>标题<input name="title" value="' + esc(node.title) + '" required></label>';
+    html += '<label>状态<select name="status">' + ['todo', 'doing', 'done'].map(function (s) { return '<option value="' + s + '"' + (node.status === s ? ' selected' : '') + '>' + { todo: '待处理', doing: '进行中', done: '已完成' }[s] + '</option>'; }).join('') + '</select></label>';
+    html += '<label>优先级<select name="priority">' + ['high', 'medium', 'low'].map(function (p) { return '<option value="' + p + '"' + (node.priority === p ? ' selected' : '') + '>' + { high: '高优先级', medium: '普通', low: '低优先级' }[p] + '</option>'; }).join('') + '</select></label>';
+    html += '<label>截止日期<input type="date" name="due_date" value="' + esc(node.due_date || '') + '"></label>';
+    html += '<label>描述<textarea name="description" rows="3" placeholder="任务描述...">' + esc((node.description || '').replace(/<[^>]+>/g, '')) + '</textarea></label>';
+    html += '<button class="button primary small">保存修改</button></form>';
     html += '<h3>添加子节点</h3><form method="post" action="/mindmap/tasks/create" class="panel-form"><input type="hidden" name="parent_id" value="' + node.id + '"><input name="title" required placeholder="子节点名称"><button class="button primary small">添加</button></form>';
-    html += '<h3>重命名</h3><form method="post" action="/mindmap/tasks/' + node.id + '/rename" class="panel-form"><input name="title" value="' + esc(node.title) + '" required><button class="button ghost small">保存</button></form>';
     html += '<h3>关联笔记 (' + node.notes.length + ')</h3>';
     node.notes.forEach(function (n) {
       html += '<div class="panel-item"><a href="/notes/' + n.id + '">▤ ' + esc(n.title) + '</a><form method="post" action="/mindmap/tasks/' + node.id + '/unlink"><input type="hidden" name="kind" value="note"><input type="hidden" name="item_id" value="' + n.id + '"><button class="icon-button" title="解除关联">✕</button></form></div>';

@@ -71,6 +71,9 @@
 .map-panel .panel-head{margin-bottom:10px}
 .panel-btn{margin-top:8px}
 .panel-form{display:flex;gap:6px;margin-top:6px}
+.edit-form label{display:block;font-size:11px;color:var(--muted);margin-top:10px}
+.edit-form input,.edit-form select,.edit-form textarea{display:block;width:100%;margin-top:4px;border:1px solid var(--line);border-radius:6px;padding:7px 9px;font:12px inherit;outline-color:var(--green);background:#fff;resize:vertical}
+.edit-form .button{margin-top:12px}
 .panel-form input,.panel-form select{flex:1;min-width:0;border:1px solid var(--line);border-radius:6px;padding:7px 9px;font:12px inherit;outline-color:var(--green);background:#fff}
 .panel-item{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:12px}
 .panel-item a{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

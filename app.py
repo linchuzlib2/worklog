@@ -660,8 +660,10 @@ def mindmap():
         return {
             "id": task.id,
             "title": task.title,
+            "description": task.description or "",
             "status": task.status,
             "priority": task.priority,
+            "due_date": task.due_date.strftime("%Y-%m-%d") if task.due_date else "",
             "notes": [{"id": note.id, "title": note.title} for note in task.notes],
             "attachments": [{"id": att.id, "name": att.original_name} for att in task.attachments],
             "children": [task_node(child) for child in task.children],
@@ -699,6 +701,22 @@ def mindmap_rename_task(task_id):
         db.session.commit()
         sync_database()
         flash("节点已重命名", "success")
+    return redirect(url_for("mindmap"))
+
+
+@app.post("/mindmap/tasks/<int:task_id>/update")
+def mindmap_update_task(task_id):
+    task = db.get_or_404(Task, task_id)
+    title = request.form.get("title", "").strip()
+    if title:
+        task.title = title
+    task.description = sanitize_html(request.form.get("description"))
+    task.status = request.form.get("status", "todo")
+    task.priority = request.form.get("priority", "medium")
+    task.due_date = parse_date(request.form.get("due_date"))
+    db.session.commit()
+    sync_database()
+    flash("任务已更新", "success")
     return redirect(url_for("mindmap"))
 
 
