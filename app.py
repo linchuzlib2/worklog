@@ -645,8 +645,7 @@ def unlink_attachment(attachment_id):
     return redirect(request.referrer or url_for("file_manager"))
 
 
-@app.get("/mindmap")
-def mindmap():
+def mindmap_tree_data():
     def task_node(task):
         return {
             "id": task.id,
@@ -661,10 +660,20 @@ def mindmap():
         }
 
     roots = Task.query.filter_by(parent_id=None).order_by(Task.created_at).all()
-    tree = [task_node(task) for task in roots]
+    return [task_node(task) for task in roots]
+
+
+@app.get("/mindmap")
+def mindmap():
+    tree = mindmap_tree_data()
     notes = Note.query.order_by(Note.updated_at.desc()).all()
     attachments = Attachment.query.order_by(Attachment.created_at.desc()).all()
     return render_template("mindmap.html", tree=tree, notes=notes, attachments=attachments)
+
+
+@app.get("/mindmap/data")
+def mindmap_data():
+    return jsonify({"tree": mindmap_tree_data()})
 
 
 @app.post("/mindmap/tasks/create")

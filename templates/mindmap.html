@@ -146,7 +146,7 @@
       var target = nodeAt(node.x + dx / view.k, node.y + dy / view.k, node);
       if (target && target !== node) {
         fetch('/mindmap/tasks/' + node.id + '/move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ parent_id: target.id }) })
-          .then(function (r) { return r.json(); }).then(function (res) { if (res.error) alert(res.error); location.reload(); });
+          .then(function (r) { return r.json(); }).then(function (res) { if (res.error) alert(res.error); reloadTree(node.id); });
         return;
       }
       render();
@@ -171,10 +171,28 @@
   }
 
   // annotate parents
-  (function annotate(node, parent) {
+  function annotate(node, parent) {
     node.parent = parent;
     (node.children || []).forEach(function (c) { annotate(c, node); });
-  })(root, null);
+  }
+  function findNodeById(node, id) {
+    if (node.id === id) return node;
+    var found = null;
+    (node.children || []).forEach(function (c) { if (!found) found = findNodeById(c, id); });
+    return found;
+  }
+  // In-place tree refresh: avoids location.reload() which exits fullscreen
+  function reloadTree(keepId) {
+    fetch('/mindmap/data').then(function (r) { return r.json(); }).then(function (res) {
+      data = res.tree;
+      root.children = data;
+      annotate(root, null);
+      selected = (keepId ? findNodeById(root, keepId) : null) || root;
+      render();
+      refreshPanel();
+    });
+  }
+  annotate(root, null);
 
   function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
   function stripTags(s) { return String(s || '').replace(/<[^>]+>/g, ''); }
@@ -238,19 +256,19 @@
       var payload = {};
       ['title', 'status', 'priority', 'due_date', 'description'].forEach(function (k) { payload[k] = fd.get(k); });
       fetch('/mindmap/tasks/' + node.id + '/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-        .then(function () { location.reload(); });
+        .then(function () { reloadTree(node.id); });
     });
     var linkNote = panel.querySelector('#mm-link-note');
     if (linkNote) linkNote.addEventListener('submit', function (ev) {
       ev.preventDefault();
       fetch('/mindmap/tasks/' + node.id + '/link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'note', item_id: Number(new FormData(linkNote).get('item_id')) }) })
-        .then(function () { location.reload(); });
+        .then(function () { reloadTree(node.id); });
     });
     var linkAtt = panel.querySelector('#mm-link-att');
     if (linkAtt) linkAtt.addEventListener('submit', function (ev) {
       ev.preventDefault();
       fetch('/mindmap/tasks/' + node.id + '/link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'attachment', item_id: Number(new FormData(linkAtt).get('item_id')) }) })
-        .then(function () { location.reload(); });
+        .then(function () { reloadTree(node.id); });
     });
     panel.querySelectorAll('[data-link-toggle]').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -270,20 +288,20 @@
         var action = btn.dataset.panel;
         if (action === 'done') {
           fetch('/tasks/' + node.id + '/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: node.status === 'done' ? 'todo' : 'done', next: '/mindmap' }) })
-            .then(function () { location.reload(); });
+            .then(function () { reloadTree(node.id); });
         }
         if (action === 'unlink-note' || action === 'unlink-att') {
           fetch('/mindmap/tasks/' + node.id + '/unlink', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: action === 'unlink-note' ? 'note' : 'attachment', item_id: Number(btn.dataset.id) }) })
-            .then(function () { location.reload(); });
+            .then(function () { reloadTree(node.id); });
         }
         if (action === 'delete-node') {
           if (confirm('仅删除该节点，子节点将提升一级，确定吗？')) {
-            fetch('/mindmap/tasks/' + node.id + '/delete-node', { method: 'POST' }).then(function () { location.reload(); });
+            fetch('/mindmap/tasks/' + node.id + '/delete-node', { method: 'POST' }).then(function () { reloadTree(node.parent && !node.parent.root ? node.parent.id : null); });
           }
         }
         if (action === 'delete-tree') {
           if (confirm('确定删除该节点及其所有子节点、笔记和附件吗？')) {
-            fetch('/tasks/' + node.id + '/delete', { method: 'POST', body: new URLSearchParams({ next: '/mindmap' }) }).then(function () { location.reload(); });
+            fetch('/tasks/' + node.id + '/delete', { method: 'POST', body: new URLSearchParams({ next: '/mindmap' }) }).then(function () { reloadTree(node.parent && !node.parent.root ? node.parent.id : null); });
           }
         }
       });
@@ -383,17 +401,17 @@
       if (action === 'sibling') { createSibling(selected); }
       if (action === 'delete-node') {
         if (confirm('仅删除该节点，子节点将提升一级，确定吗？')) {
-          fetch('/mindmap/tasks/' + selected.id + '/delete-node', { method: 'POST' }).then(function () { location.reload(); });
+          fetch('/mindmap/tasks/' + selected.id + '/delete-node', { method: 'POST' }).then(function () { reloadTree(selected.parent && !selected.parent.root ? selected.parent.id : null); });
         }
       }
       if (action === 'delete-tree') {
         if (confirm('确定删除该节点及其所有子节点、笔记和附件吗？')) {
-          fetch('/tasks/' + selected.id + '/delete', { method: 'POST', body: new URLSearchParams({ next: '/mindmap' }) }).then(function () { location.reload(); });
+          fetch('/tasks/' + selected.id + '/delete', { method: 'POST', body: new URLSearchParams({ next: '/mindmap' }) }).then(function () { reloadTree(selected.parent && !selected.parent.root ? selected.parent.id : null); });
         }
       }
       if (action === 'done') {
         fetch('/tasks/' + selected.id + '/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: selected.status === 'done' ? 'todo' : 'done', next: '/mindmap' }) })
-          .then(function () { location.reload(); });
+          .then(function () { reloadTree(selected.id); });
       }
     });
   });
@@ -402,12 +420,12 @@
     var parentId = node.root ? '' : node.id;
     var title = node.root ? '新任务' : '新节点';
     fetch('/mindmap/tasks/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title, parent_id: parentId }) })
-      .then(function (r) { return r.json(); }).then(function () { location.reload(); });
+      .then(function (r) { return r.json(); }).then(function (res) { reloadTree(res.id); });
   }
   function createSibling(node) {
     if (node.root || !node.parent) { alert('根任务请使用"子节点"按钮创建'); return; }
     fetch('/mindmap/tasks/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: '新节点', parent_id: node.parent.id }) })
-      .then(function (r) { return r.json(); }).then(function () { location.reload(); });
+      .then(function (r) { return r.json(); }).then(function (res) { reloadTree(res.id); });
   }
 
   // ---- keyboard shortcuts ----
@@ -427,7 +445,7 @@
       if (selected && !selected.root) {
         ev.preventDefault();
         if (confirm('删除该节点（子节点提升一级）？')) {
-          fetch('/mindmap/tasks/' + selected.id + '/delete-node', { method: 'POST' }).then(function () { location.reload(); });
+          fetch('/mindmap/tasks/' + selected.id + '/delete-node', { method: 'POST' }).then(function () { reloadTree(selected.parent && !selected.parent.root ? selected.parent.id : null); });
         }
       }
     } else if ((ev.ctrlKey || ev.metaKey) && (key === '=' || key === '+')) {
