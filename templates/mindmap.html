@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}任务导图{% endblock %}
 {% block content %}
-<div class="mindmap-page">
+<div class="mindmap-page" id="mm-page">
 <div class="mm-toolbar">
   <span class="mm-brand">◈ 任务导图</span>
   <span class="mm-sep"></span>
@@ -11,19 +11,22 @@
   <button class="mm-btn" data-mm-action="delete-tree" title="删除节点及全部子节点">✕ 删子树</button>
   <span class="mm-sep"></span>
   <button class="mm-btn" data-mm-action="done" title="切换完成状态">✓ 完成</button>
-  <button class="mm-btn" data-mm-action="detail" title="打开任务详情">详情 →</button>
   <span class="mm-flex"></span>
   <span class="mm-zoom-label" id="mm-zoom-label">100%</span>
   <button class="mm-btn" data-mm-action="zoom-out" title="缩小 (Ctrl -)">－</button>
   <button class="mm-btn" data-mm-action="zoom-in" title="放大 (Ctrl +)">＋</button>
   <button class="mm-btn" data-mm-action="zoom-fit" title="适应画布">最适合</button>
   <button class="mm-btn" data-mm-action="center" title="回到中心">⌂</button>
+  <button class="mm-btn" data-mm-action="fullscreen" title="全屏 (F11 / Ctrl+Shift+F)">⛶ 全屏</button>
 </div>
 <div class="mindmap-layout mm-full">
   <div class="map-canvas-wrap" id="mm-canvas-wrap">
     <svg id="map-canvas"></svg>
-    <div class="mm-hint">双击节点编辑 · Tab 加子节点 · Enter 加同级 · Delete 删除 · 拖拽节点调整结构 · 空白处拖动画布 · 滚轮缩放</div>
+    <div class="mm-hint">双击节点改标题 · 单击选中后在右侧编辑 · Tab 子节点 · Enter 同级 · Delete 删除 · 拖拽节点调层级 · 拖空白平移 · 滚轮缩放</div>
   </div>
+  <aside class="map-panel mm-panel" id="map-panel">
+    <p class="muted map-panel-hint">单击节点在此编辑一切：标题、状态、日期、笔记、附件。</p>
+  </aside>
 </div>
 </div>
 <script type="application/json" id="tree-data">{{ tree|tojson }}</script>
@@ -34,6 +37,7 @@
   var root = { id: 0, title: '任务', root: true, status: 'root', priority: 'medium', due_date: '', description: '', notes: [], attachments: [], children: data };
   var wrap = document.getElementById('mm-canvas-wrap');
   var svg = document.getElementById('map-canvas');
+  var panel = document.getElementById('map-panel');
   var NS = 'http://www.w3.org/2000/svg';
   var selected = null, editing = null;
   var view = { x: 0, y: 0, k: 1 };
@@ -72,30 +76,7 @@
     return { high: '#c65d4d', medium: '#238363', low: '#7d8786' }[n.priority] || '#238363';
   }
 
-  function draw(node) {
-    if (node.parent) {
-      var x1 = node.parent.x + NW, y1 = node.parent.y, x2 = node.x, y2 = node.y, mx = (x1 + x2) / 2;
-      svg.appendChild(el('path', { d: 'M' + x1 + ' ' + y1 + ' C ' + mx + ' ' + y1 + ', ' + mx + ' ' + y2 + ', ' + x2 + ' ' + y2, fill: 'none', stroke: '#b8c6c0', 'stroke-width': 1.6 }));
-    }
-    var g = el('g', { class: 'map-node' + (node === selected ? ' selected' : ''), transform: 'translate(' + node.x + ',' + (node.y - NH / 2) + ')' });
-    g.appendChild(el('rect', { width: NW, height: NH, rx: 9, fill: nodeFill(node), stroke: node === selected ? '#238363' : 'transparent', 'stroke-width': 2 }));
-    var label = node.title.length > 11 ? node.title.slice(0, 11) + '…' : node.title;
-    var t = el('text', { x: 12, y: NH / 2 + 5, fill: nodeColor(node), 'font-size': 13, 'font-weight': node.root ? 700 : 500 });
-    t.textContent = label;
-    g.appendChild(t);
-    var badges = [];
-    if (node.notes.length) badges.push('▤' + node.notes.length);
-    if (node.attachments.length) badges.push('⌑' + node.attachments.length);
-    if (node.children.length) badges.push('＋' + node.children.length);
-    if (badges.length) g.appendChild(el('text', { x: NW - 8, y: NH / 2 + 4, fill: '#7d8786', 'font-size': 10, 'text-anchor': 'end' }, badges.join(' ')));
-    g.addEventListener('click', function (ev) { ev.stopPropagation(); if (dragState.moved) return; select(node); });
-    g.addEventListener('dblclick', function (ev) { ev.stopPropagation(); startEdit(node); });
-    enableNodeDrag(g, node);
-    svg.appendChild(g);
-    (node.children || []).forEach(draw);
-  }
-
-  // ---- inline edit (MindNow style) ----
+  // ---- inline title edit (double click) ----
   function startEdit(node) {
     if (node.root || editing) return;
     editing = node;
@@ -111,7 +92,8 @@
       var val = input.value.trim();
       editing = null;
       if (save && val) {
-        post('/mindmap/tasks/' + node.id + '/rename', { title: val });
+        fetch('/mindmap/tasks/' + node.id + '/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: val }) })
+          .then(function () { node.title = val; render(); refreshPanel(); });
       } else { render(); }
     }
     input.addEventListener('keydown', function (ev) {
@@ -121,13 +103,7 @@
     input.addEventListener('blur', function () { commit(true); });
   }
 
-  function post(url, data) {
-    var fd = new FormData();
-    Object.keys(data || {}).forEach(function (k) { fd.append(k, data[k]); });
-    fetch(url, { method: 'POST', body: fd }).then(function (r) { if (!r.ok) throw 0; return r.json ? r : r; }).then(function () { location.reload(); }).catch(function () { location.reload(); });
-  }
-
-  // ---- node drag to re-parent (MindNow style) ----
+  // ---- node drag to re-parent ----
   var dragState = { dragging: null, moved: false, ghost: null };
 
   function enableNodeDrag(g, node) {
@@ -179,8 +155,7 @@
 
   function highlightNode(target) {
     document.querySelectorAll('.map-node').forEach(function (g) {
-      var t = g.__node;
-      if (t === target) g.classList.add('drop-hint');
+      if (g.__node === target) g.classList.add('drop-hint');
     });
   }
 
@@ -195,29 +170,105 @@
     return found;
   }
 
-  function findByTree(node, id) {
-    if (node.id === id) return node;
-    for (var i = 0; i < (node.children || []).length; i++) {
-      var f = findByTree(node.children[i], id);
-      if (f) return f;
-    }
-    return null;
-  }
-
-  // annotate parents & store refs
+  // annotate parents
   (function annotate(node, parent) {
     node.parent = parent;
     (node.children || []).forEach(function (c) { annotate(c, node); });
   })(root, null);
 
   function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function stripTags(s) { return String(s || '').replace(/<[^>]+>/g, ''); }
 
-  // ---- selection panel (context) ----
+  // ---- selection & full edit panel ----
   function select(node) {
     selected = node;
     render();
-    if (node.root) return;
-    wrap.dataset.selectedId = node.id;
+    refreshPanel();
+  }
+
+  function refreshPanel() {
+    if (!selected || selected.root) {
+      panel.innerHTML = '<h2>任务导图</h2><p class="muted">这是虚拟根节点。点击右上「＋ 子节点」或在画布选中节点后按 Tab 创建第一个任务；单击任意节点，在右侧编辑它的一切。</p>';
+      return;
+    }
+    var node = selected;
+    var linkedNoteIds = node.notes.map(function (n) { return n.id; });
+    var linkedAttIds = node.attachments.map(function (a) { return a.id; });
+    var noteOptions = window.__allNotes.filter(function (n) { return linkedNoteIds.indexOf(n.id) < 0; })
+      .map(function (n) { return '<option value="' + n.id + '">' + esc(n.title) + '</option>'; }).join('');
+    var attOptions = window.__allAttachments.filter(function (a) { return linkedAttIds.indexOf(a.id) < 0; })
+      .map(function (a) { return '<option value="' + a.id + '">' + esc(a.name) + '</option>'; }).join('');
+    var html = '';
+    html += '<div class="panel-head"><span class="status-label ' + node.status + '">' + (node.status === 'done' ? '已完成' : (node.status === 'doing' ? '进行中' : '待处理')) + '</span><h2>' + esc(node.title) + '</h2></div>';
+    html += '<button class="mm-btn panel-btn" data-panel="done">' + (node.status === 'done' ? '↺ 标记为待处理' : '✓ 标记为已完成') + '</button>';
+    html += '<h3>编辑任务</h3>';
+    html += '<form id="mm-edit-form">';
+    html += '<label>标题<input name="title" value="' + esc(node.title) + '" required></label>';
+    html += '<label>状态<select name="status">' + ['todo', 'doing', 'done'].map(function (s) { return '<option value="' + s + '"' + (node.status === s ? ' selected' : '') + '>' + { todo: '待处理', doing: '进行中', done: '已完成' }[s] + '</option>'; }).join('') + '</select></label>';
+    html += '<label>优先级<select name="priority">' + ['high', 'medium', 'low'].map(function (p) { return '<option value="' + p + '"' + (node.priority === p ? ' selected' : '') + '>' + { high: '高优先级', medium: '普通', low: '低优先级' }[p] + '</option>'; }).join('') + '</select></label>';
+    html += '<label>截止日期<input type="date" name="due_date" value="' + esc(node.due_date || '') + '"></label>';
+    html += '<label>描述<textarea name="description" rows="3" placeholder="任务描述...">' + esc(stripTags(node.description)) + '</textarea></label>';
+    html += '<button type="submit" class="button primary small">保存修改</button></form>';
+    html += '<h3>关联笔记 (' + node.notes.length + ')</h3>';
+    node.notes.forEach(function (n) {
+      html += '<div class="panel-item"><a href="/notes/' + n.id + '" target="_blank">▤ ' + esc(n.title) + '</a><button class="icon-button" data-panel="unlink-note" data-id="' + n.id + '" title="解除关联">✕</button></div>';
+    });
+    html += noteOptions ? '<form id="mm-link-note" class="panel-form"><select name="item_id">' + noteOptions + '</select><button type="submit" class="button ghost small">关联</button></form>' : '<p class="muted small">没有更多可关联的笔记。</p>';
+    html += '<h3>关联附件 (' + node.attachments.length + ')</h3>';
+    node.attachments.forEach(function (a) {
+      html += '<div class="panel-item"><a href="/attachments/' + a.id + '" target="_blank">⌑ ' + esc(a.name) + '</a><button class="icon-button" data-panel="unlink-att" data-id="' + a.id + '" title="解除关联">✕</button></div>';
+    });
+    html += attOptions ? '<form id="mm-link-att" class="panel-form"><select name="item_id">' + attOptions + '</select><button type="submit" class="button ghost small">关联</button></form>' : '<p class="muted small">没有更多可关联的附件。</p>';
+    html += '<h3>危险操作</h3>';
+    html += '<button class="button danger small" data-panel="delete-node">－ 仅删此节点（子级提升）</button> ';
+    html += '<button class="button danger small" data-panel="delete-tree">✕ 删除节点及子树</button>';
+    panel.innerHTML = html;
+    panel.scrollTop = 0;
+
+    var form = panel.querySelector('#mm-edit-form');
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var fd = new FormData(form);
+      var payload = {};
+      ['title', 'status', 'priority', 'due_date', 'description'].forEach(function (k) { payload[k] = fd.get(k); });
+      fetch('/mindmap/tasks/' + node.id + '/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        .then(function () { location.reload(); });
+    });
+    var linkNote = panel.querySelector('#mm-link-note');
+    if (linkNote) linkNote.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      fetch('/mindmap/tasks/' + node.id + '/link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'note', item_id: Number(new FormData(linkNote).get('item_id')) }) })
+        .then(function () { location.reload(); });
+    });
+    var linkAtt = panel.querySelector('#mm-link-att');
+    if (linkAtt) linkAtt.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      fetch('/mindmap/tasks/' + node.id + '/link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'attachment', item_id: Number(new FormData(linkAtt).get('item_id')) }) })
+        .then(function () { location.reload(); });
+    });
+    panel.querySelectorAll('[data-panel]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var action = btn.dataset.panel;
+        if (action === 'done') {
+          fetch('/tasks/' + node.id + '/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: node.status === 'done' ? 'todo' : 'done', next: '/mindmap' }) })
+            .then(function () { location.reload(); });
+        }
+        if (action === 'unlink-note' || action === 'unlink-att') {
+          fetch('/mindmap/tasks/' + node.id + '/unlink', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: action === 'unlink-note' ? 'note' : 'attachment', item_id: Number(btn.dataset.id) }) })
+            .then(function () { location.reload(); });
+        }
+        if (action === 'delete-node') {
+          if (confirm('仅删除该节点，子节点将提升一级，确定吗？')) {
+            fetch('/mindmap/tasks/' + node.id + '/delete-node', { method: 'POST' }).then(function () { location.reload(); });
+          }
+        }
+        if (action === 'delete-tree') {
+          if (confirm('确定删除该节点及其所有子节点、笔记和附件吗？')) {
+            fetch('/tasks/' + node.id + '/delete', { method: 'POST', body: new URLSearchParams({ next: '/mindmap' }) }).then(function () { location.reload(); });
+          }
+        }
+      });
+    });
   }
 
   // ---- render with view transform ----
@@ -237,7 +288,6 @@
     svg.style.height = Math.max(H, 320) + 'px';
     var gAll = el('g', { transform: 'translate(' + view.x + ',' + view.y + ') scale(' + view.k + ')' });
     svg.appendChild(gAll);
-    // draw into gAll
     (function drawAll(node) {
       if (node.parent) {
         var x1 = node.parent.x + NW, y1 = node.parent.y, x2 = node.x, y2 = node.y, mx = (x1 + x2) / 2;
@@ -287,10 +337,21 @@
     render();
   }
 
+  // ---- fullscreen ----
+  var mmPage = document.getElementById('mm-page');
+  function toggleFullscreen() {
+    if (document.fullscreenElement) { document.exitFullscreen(); }
+    else if (mmPage.requestFullscreen) { mmPage.requestFullscreen(); }
+  }
+  document.addEventListener('fullscreenchange', function () {
+    mmPage.classList.toggle('is-fullscreen', !!document.fullscreenElement);
+  });
+
   // ---- toolbar actions ----
   document.querySelectorAll('.mm-btn').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var action = btn.dataset.mmAction;
+      if (action === 'fullscreen') { toggleFullscreen(); return; }
       if (['zoom-in', 'zoom-out', 'zoom-fit', 'center'].indexOf(action) >= 0) {
         if (action === 'zoom-in') zoom(1.2);
         if (action === 'zoom-out') zoom(1 / 1.2);
@@ -302,25 +363,27 @@
       if (action === 'child') { createChild(selected); }
       if (action === 'sibling') { createSibling(selected); }
       if (action === 'delete-node') {
-        if (confirm('仅删除该节点，子节点将提升一级，确定吗？')) post('/mindmap/tasks/' + selected.id + '/delete-node', {});
+        if (confirm('仅删除该节点，子节点将提升一级，确定吗？')) {
+          fetch('/mindmap/tasks/' + selected.id + '/delete-node', { method: 'POST' }).then(function () { location.reload(); });
+        }
       }
       if (action === 'delete-tree') {
-        if (confirm('确定删除该节点及其所有子节点、笔记和附件吗？')) post('/tasks/' + selected.id + '/delete', { next: '/mindmap' });
+        if (confirm('确定删除该节点及其所有子节点、笔记和附件吗？')) {
+          fetch('/tasks/' + selected.id + '/delete', { method: 'POST', body: new URLSearchParams({ next: '/mindmap' }) }).then(function () { location.reload(); });
+        }
       }
       if (action === 'done') {
-        post('/tasks/' + selected.id + '/status', { status: selected.status === 'done' ? 'todo' : 'done', next: '/mindmap' });
+        fetch('/tasks/' + selected.id + '/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: selected.status === 'done' ? 'todo' : 'done', next: '/mindmap' }) })
+          .then(function () { location.reload(); });
       }
-      if (action === 'detail') { location.href = '/tasks/' + selected.id; }
     });
   });
 
   function createChild(node) {
-    if (node.root) {
-      post('/mindmap/tasks/create', { title: '新任务', parent_id: '' });
-    } else {
-      fetch('/mindmap/tasks/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: '新节点', parent_id: node.id }) })
-        .then(function (r) { return r.json(); }).then(function () { location.reload(); });
-    }
+    var parentId = node.root ? '' : node.id;
+    var title = node.root ? '新任务' : '新节点';
+    fetch('/mindmap/tasks/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title, parent_id: parentId }) })
+      .then(function (r) { return r.json(); }).then(function () { location.reload(); });
   }
   function createSibling(node) {
     if (node.root || !node.parent) { alert('根任务请使用"子节点"按钮创建'); return; }
@@ -328,7 +391,7 @@
       .then(function (r) { return r.json(); }).then(function () { location.reload(); });
   }
 
-  // ---- keyboard shortcuts (MindNow style) ----
+  // ---- keyboard shortcuts ----
   document.addEventListener('keydown', function (ev) {
     if (editing) return;
     if (ev.target.matches('input, textarea, select')) return;
@@ -339,10 +402,14 @@
     } else if (key === 'Enter') {
       ev.preventDefault();
       if (selected) createSibling(selected);
+    } else if (key === 'F11' || ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && key.toLowerCase() === 'f')) {
+      ev.preventDefault(); toggleFullscreen();
     } else if (key === 'Delete' || key === 'Backspace') {
       if (selected && !selected.root) {
         ev.preventDefault();
-        if (confirm('删除该节点（子节点提升一级）？')) post('/mindmap/tasks/' + selected.id + '/delete-node', {});
+        if (confirm('删除该节点（子节点提升一级）？')) {
+          fetch('/mindmap/tasks/' + selected.id + '/delete-node', { method: 'POST' }).then(function () { location.reload(); });
+        }
       }
     } else if ((ev.ctrlKey || ev.metaKey) && (key === '=' || key === '+')) {
       ev.preventDefault(); zoom(1.2);

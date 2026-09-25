@@ -27,7 +27,7 @@
       <div class="empty">今天没有待办事项，享受轻松的一天。</div>
       {% endfor %}
     </div>
-    <div class="section-title today-gap"><h2>任务与日程</h2><div class="title-links"><a href="{{ url_for('new_task') }}">新建任务　→</a><a href="{{ url_for('schedule') }}">管理日程　→</a></div></div>
+    <div class="section-title today-gap"><h2>任务与日程</h2><div class="title-links"><a href="{{ url_for('mindmap') }}">任务导图　→</a><a href="{{ url_for('schedule') }}">管理日程　→</a></div></div>
     <div class="task-list">
       {% for item in items %}
       {% if loop.first and not item.done %}<div class="list-group-header"><span>待处理</span><b>{{ shown_pending }}</b></div>{% endif %}

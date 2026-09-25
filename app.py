@@ -388,14 +388,8 @@ def view_attachment(attachment_id):
 
 @app.route("/tasks/new", methods=["GET", "POST"])
 def new_task():
-    if request.method == "POST":
-        task = Task(title=request.form["title"].strip(), description=sanitize_html(request.form.get("description")), status=request.form.get("status", "todo"), priority=request.form.get("priority", "medium"), due_date=parse_date(request.form.get("due_date")))
-        db.session.add(task)
-        db.session.commit()
-        sync_database()
-        flash("任务已创建", "success")
-        return redirect(url_for("task_detail", task_id=task.id))
-    return render_template("task_form.html", task=None)
+    """任务创建统一在导图页完成，此入口重定向过去。"""
+    return redirect(url_for("mindmap"))
 
 
 @app.route("/tasks/<int:task_id>")
@@ -406,28 +400,22 @@ def task_detail(task_id):
 
 @app.route("/tasks/<int:task_id>/edit", methods=["GET", "POST"])
 def edit_task(task_id):
-    task = db.get_or_404(Task, task_id)
-    if request.method == "POST":
-        task.title = request.form["title"].strip()
-        task.description = sanitize_html(request.form.get("description"))
-        task.status = request.form.get("status", "todo")
-        task.priority = request.form.get("priority", "medium")
-        task.due_date = parse_date(request.form.get("due_date"))
-        db.session.commit()
-        sync_database()
-        flash("任务已更新", "success")
-        return redirect(url_for("task_detail", task_id=task.id))
-    return render_template("task_form.html", task=task)
+    """任务编辑统一在导图页完成，此入口重定向过去。"""
+    db.get_or_404(Task, task_id)
+    return redirect(url_for("mindmap"))
 
 
 @app.post("/tasks/<int:task_id>/status")
 def update_task_status(task_id):
     task = db.get_or_404(Task, task_id)
-    task.status = request.form["status"]
+    payload = request.get_json(silent=True) or request.form
+    task.status = payload.get("status") or "todo"
     db.session.commit()
     sync_database()
-    next_url = request.form.get("next", "")
-    if next_url.startswith("/"):
+    if request.is_json:
+        return jsonify({"ok": True})
+    next_url = payload.get("next", "")
+    if next_url and str(next_url).startswith("/"):
         return redirect(next_url)
     return redirect(request.referrer or url_for("index"))
 
@@ -441,8 +429,11 @@ def delete_task(task_id):
     db.session.commit()
     sync_database()
     flash("任务已删除", "success")
-    next_url = request.form.get("next", "")
-    if next_url.startswith("/"):
+    if request.is_json:
+        return jsonify({"ok": True})
+    payload = request.get_json(silent=True) or request.form
+    next_url = payload.get("next", "")
+    if next_url and str(next_url).startswith("/"):
         return redirect(next_url)
     return redirect(url_for("index"))
 
@@ -741,11 +732,14 @@ def mindmap_delete_node(task_id):
 @app.post("/mindmap/tasks/<int:task_id>/rename")
 def mindmap_rename_task(task_id):
     task = db.get_or_404(Task, task_id)
-    title = request.form.get("title", "").strip()
+    payload = request.get_json(silent=True) or request.form
+    title = (payload.get("title") or "").strip()
     if title:
         task.title = title
         db.session.commit()
         sync_database()
+        if request.is_json:
+            return jsonify({"ok": True})
         flash("节点已重命名", "success")
     return redirect(url_for("mindmap"))
 
@@ -753,15 +747,18 @@ def mindmap_rename_task(task_id):
 @app.post("/mindmap/tasks/<int:task_id>/update")
 def mindmap_update_task(task_id):
     task = db.get_or_404(Task, task_id)
-    title = request.form.get("title", "").strip()
+    payload = request.get_json(silent=True) or request.form
+    title = (payload.get("title") or "").strip()
     if title:
         task.title = title
-    task.description = sanitize_html(request.form.get("description"))
-    task.status = request.form.get("status", "todo")
-    task.priority = request.form.get("priority", "medium")
-    task.due_date = parse_date(request.form.get("due_date"))
+    task.description = sanitize_html(payload.get("description"))
+    task.status = payload.get("status") or "todo"
+    task.priority = payload.get("priority") or "medium"
+    task.due_date = parse_date(payload.get("due_date"))
     db.session.commit()
     sync_database()
+    if request.is_json:
+        return jsonify({"ok": True})
     flash("任务已更新", "success")
     return redirect(url_for("mindmap"))
 
@@ -769,8 +766,12 @@ def mindmap_update_task(task_id):
 @app.post("/mindmap/tasks/<int:task_id>/link")
 def mindmap_link(task_id):
     task = db.get_or_404(Task, task_id)
-    kind = request.form.get("kind")
-    item_id = request.form.get("item_id", type=int)
+    payload = request.get_json(silent=True) or request.form
+    kind = payload.get("kind")
+    try:
+        item_id = int(payload.get("item_id") or 0)
+    except (TypeError, ValueError):
+        item_id = 0
     if kind == "note" and item_id:
         note = db.get_or_404(Note, item_id)
         note.task_id = task.id
@@ -778,10 +779,14 @@ def mindmap_link(task_id):
         attachment = db.get_or_404(Attachment, item_id)
         attachment.task_id = task.id
     else:
+        if request.is_json:
+            return jsonify({"error": "请选择要关联的内容"}), 400
         flash("请选择要关联的内容", "error")
         return redirect(url_for("mindmap"))
     db.session.commit()
     sync_database()
+    if request.is_json:
+        return jsonify({"ok": True})
     flash("已关联", "success")
     return redirect(url_for("mindmap"))
 
@@ -789,8 +794,12 @@ def mindmap_link(task_id):
 @app.post("/mindmap/tasks/<int:task_id>/unlink")
 def mindmap_unlink(task_id):
     task = db.get_or_404(Task, task_id)
-    kind = request.form.get("kind")
-    item_id = request.form.get("item_id", type=int)
+    payload = request.get_json(silent=True) or request.form
+    kind = payload.get("kind")
+    try:
+        item_id = int(payload.get("item_id") or 0)
+    except (TypeError, ValueError):
+        item_id = 0
     if kind == "note" and item_id:
         note = db.get_or_404(Note, item_id)
         if note.task_id == task.id:
@@ -801,6 +810,8 @@ def mindmap_unlink(task_id):
             attachment.task_id = None
     db.session.commit()
     sync_database()
+    if request.is_json:
+        return jsonify({"ok": True})
     flash("已解除关联", "success")
     return redirect(url_for("mindmap"))
 
