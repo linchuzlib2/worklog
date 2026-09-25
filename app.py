@@ -663,6 +663,17 @@ def mindmap_tree_data():
     return [task_node(task) for task in roots]
 
 
+@app.context_processor
+def inject_static_version():
+    def static_version(filename):
+        path = os.path.join(app.static_folder or "static", filename)
+        try:
+            return str(int(os.path.getmtime(path)))
+        except OSError:
+            return "0"
+    return dict(static_version=static_version)
+
+
 @app.get("/mindmap")
 def mindmap():
     tree = mindmap_tree_data()

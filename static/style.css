@@ -103,8 +103,8 @@
 .map-node.drop-hint rect{stroke:#238363 !important;stroke-width:2.5;stroke-dasharray:5 3}
 .map-canvas-wrap{max-height:calc(100vh - 210px)}
 /* Mindmap fullscreen */
-.mindmap-page.is-fullscreen{background:var(--paper);padding:16px 18px;overflow:hidden;height:100vh;display:flex;flex-direction:column}
+.mindmap-page:fullscreen,.mindmap-page.is-fullscreen{background:var(--paper);padding:16px 18px;overflow:hidden;width:100%;height:100%;display:flex;flex-direction:column}
 .mindmap-page.is-fullscreen .mm-toolbar{margin-bottom:10px;flex:none}
-.mindmap-page.is-fullscreen .mindmap-layout{flex:1;min-height:0;grid-template-columns:minmax(0,1fr) 320px}
-.mindmap-page.is-fullscreen .map-canvas-wrap{max-height:none;height:100%}
-.mindmap-page.is-fullscreen .map-panel{max-height:none;height:100%}
+.mindmap-page.is-fullscreen .mindmap-layout{flex:1;min-height:0;grid-template-columns:minmax(0,1fr) 320px;grid-template-rows:minmax(0,1fr);align-items:stretch}
+.mindmap-page.is-fullscreen .map-canvas-wrap,.mindmap-page.is-fullscreen .map-panel{max-height:none;height:100%;min-height:0}
+.mindmap-page.is-fullscreen .map-panel{overflow:auto}

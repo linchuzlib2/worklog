@@ -146,7 +146,7 @@
       var target = nodeAt(node.x + dx / view.k, node.y + dy / view.k, node);
       if (target && target !== node) {
         fetch('/mindmap/tasks/' + node.id + '/move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ parent_id: target.id }) })
-          .then(function (r) { return r.json(); }).then(function (res) { if (res.error) alert(res.error); reloadTree(node.id); });
+          .then(function (r) { return r.json(); }).then(function (res) { if (res.error) mmAlert(res.error); reloadTree(node.id); });
         return;
       }
       render();
@@ -234,6 +234,40 @@
       overlay.addEventListener('mousedown', function (ev) { if (ev.target === overlay) close(false); });
       cancel.addEventListener('click', function () { close(false); });
       ok.addEventListener('click', function () { close(true); });
+      document.addEventListener('keydown', onKey, true);
+      document.getElementById('mm-page').appendChild(overlay);
+      ok.focus();
+    });
+  }
+  function mmAlert(message) {
+    return new Promise(function (resolve) {
+      var overlay = document.createElement('div');
+      overlay.className = 'mm-confirm';
+      var box = document.createElement('div');
+      box.className = 'mm-confirm-box';
+      var p = document.createElement('p');
+      p.textContent = message;
+      var actions = document.createElement('div');
+      actions.className = 'mm-confirm-actions';
+      var ok = document.createElement('button');
+      ok.type = 'button';
+      ok.className = 'mm-btn';
+      ok.textContent = '知道了';
+      actions.appendChild(ok);
+      box.appendChild(p);
+      box.appendChild(actions);
+      overlay.appendChild(box);
+      function close() {
+        document.removeEventListener('keydown', onKey, true);
+        overlay.remove();
+        resolve();
+      }
+      function onKey(ev) {
+        ev.stopPropagation();
+        if (ev.key === 'Escape' || ev.key === 'Enter') { ev.preventDefault(); close(); }
+      }
+      overlay.addEventListener('mousedown', function (ev) { if (ev.target === overlay) close(); });
+      ok.addEventListener('click', close);
       document.addEventListener('keydown', onKey, true);
       document.getElementById('mm-page').appendChild(overlay);
       ok.focus();
@@ -439,7 +473,7 @@
         if (action === 'center') { view.x = 0; view.y = 0; render(); }
         return;
       }
-      if (!selected || selected.root) { alert('请先点击选择一个节点'); return; }
+      if (!selected || selected.root) { mmAlert('请先点击选择一个节点'); return; }
       if (action === 'child') { createChild(selected); }
       if (action === 'sibling') { createSibling(selected); }
       if (action === 'delete-node') {
@@ -466,7 +500,7 @@
       .then(function (r) { return r.json(); }).then(function (res) { reloadTree(res.id); });
   }
   function createSibling(node) {
-    if (node.root || !node.parent) { alert('根任务请使用"子节点"按钮创建'); return; }
+    if (node.root || !node.parent) { mmAlert('根任务请使用"子节点"按钮创建'); return; }
     fetch('/mindmap/tasks/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: '新节点', parent_id: node.parent.id }) })
       .then(function (r) { return r.json(); }).then(function (res) { reloadTree(res.id); });
   }
