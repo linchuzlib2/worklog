@@ -470,7 +470,10 @@ def file_manager():
     if folder_id and not folder:
         return redirect(url_for("file_manager"))
     folders = Folder.query.filter_by(parent_id=folder_id).order_by(Folder.name).all()
-    files = Attachment.query.filter_by(folder_id=folder_id).order_by(Attachment.created_at.desc()).all()
+    if folder:
+        files = Attachment.query.filter_by(folder_id=folder.id).order_by(Attachment.created_at.desc()).all()
+    else:
+        files = Attachment.query.order_by(Attachment.created_at.desc()).all()
     all_folders = Folder.query.order_by(Folder.name).all()
     children_map = {}
     for entry in all_folders:
@@ -489,8 +492,11 @@ def file_manager():
     while current:
         breadcrumbs.append(current)
         current = current.parent
+    breadcrumbs = list(reversed(breadcrumbs))
+    expanded_ids = {entry.id for entry in breadcrumbs}
     return render_template("file_manager.html", folder=folder, folders=folders, files=files, all_folders=all_folders,
-                           folder_paths=folder_paths, children_map=children_map, breadcrumbs=list(reversed(breadcrumbs)))
+                           folder_paths=folder_paths, children_map=children_map, breadcrumbs=breadcrumbs,
+                           expanded_ids=expanded_ids)
 
 
 @app.post("/files/folders")

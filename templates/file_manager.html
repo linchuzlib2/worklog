@@ -1,9 +1,11 @@
 {% extends 'base.html' %}
 {% block title %}文件管理{% endblock %}
-{% macro render_tree(nodes, depth, children_map) %}
+{% macro render_tree(nodes, children_map, expanded_ids, folder) %}
   {% for node in nodes %}
-  <div class="tree-folder {% if folder and folder.id == node.id %}active{% endif %}" data-folder-id="{{ node.id }}">
+  {% set children = children_map.get(node.id, []) %}
+  <div class="tree-folder {% if folder and folder.id == node.id %}active{% endif %} {% if node.id in expanded_ids %}open{% endif %}" data-folder-id="{{ node.id }}">
     <div class="tree-row">
+      {% if children %}<button type="button" class="tree-toggle" title="展开/折叠">▸</button>{% else %}<span class="tree-toggle blank"></span>{% endif %}
       <a class="tree-link" href="{{ url_for('file_manager', folder_id=node.id) }}"><span class="folder-icon">▰</span><span class="tree-name">{{ node.name }}</span><small>{{ node.files|length }}</small></a>
       <span class="tree-actions">
         <button type="button" class="icon-button" data-rename title="重命名">↗</button>
@@ -11,7 +13,7 @@
       </span>
     </div>
     <form method="post" action="{{ url_for('rename_folder', folder_id=node.id) }}" class="rename-form" hidden><input name="name" value="{{ node.name }}" required><button class="icon-button" title="保存">✓</button></form>
-    {{ render_tree(children_map.get(node.id, []), depth + 1, children_map) }}
+    {% if children %}<div class="tree-children">{{ render_tree(children, children_map, expanded_ids, folder) }}</div>{% endif %}
   </div>
   {% endfor %}
 {% endmacro %}
@@ -21,13 +23,13 @@
 <div class="file-layout">
   <aside class="folder-tree">
     <div class="tree-folder tree-root {% if not folder %}active{% endif %}" data-folder-id="">
-      <div class="tree-row"><a class="tree-link" href="{{ url_for('file_manager') }}"><span class="folder-icon">▰</span><span class="tree-name">全部文件</span></a></div>
+      <div class="tree-row"><span class="tree-toggle blank"></span><a class="tree-link" href="{{ url_for('file_manager') }}"><span class="folder-icon">▰</span><span class="tree-name">全部文件</span></a></div>
     </div>
-    {{ render_tree(children_map.get(None, []), 1, children_map) }}
+    {{ render_tree(children_map.get(None, []), children_map, expanded_ids, folder) }}
   </aside>
   <section class="folder-files">
     <div class="file-toolbar"><div class="breadcrumbs"><a href="{{ url_for('file_manager') }}">全部文件</a>{% for crumb in breadcrumbs %}<span> / </span><a href="{{ url_for('file_manager', folder_id=crumb.id) }}">{{ crumb.name }}</a>{% endfor %}</div><form class="upload-form compact duplicate-aware-upload" method="post" enctype="multipart/form-data" action="{{ url_for('upload_attachment') }}"><input type="hidden" name="folder_id" value="{{ folder.id if folder else '' }}"><input type="hidden" name="allow_duplicate" value="0"><input type="file" name="file" required><button class="button primary small">上传文件</button></form></div>
-    <div class="file-grid file-grid-list">{% for file in files %}<article class="file-card" draggable="true" data-file-id="{{ file.id }}"><div class="file-icon">⌑</div><div class="file-main"><a href="{{ url_for('download_attachment', attachment_id=file.id) }}" class="file-name">{{ file.original_name }}</a><small>{{ (file.size / 1024)|round(1) }} KB{% if file.task %} · 任务：{{ file.task.title }}{% endif %}{% if file.note %} · 笔记：{{ file.note.title }}{% endif %}</small></div><form method="post" action="{{ url_for('move_file', attachment_id=file.id) }}" class="move-file-form"><select name="folder_id" title="移动到文件夹"><option value="">根目录</option>{% for destination in all_folders %}<option value="{{ destination.id }}" {% if file.folder_id == destination.id %}selected{% endif %}>{{ folder_paths[destination.id] }}</option>{% endfor %}</select><button class="button ghost small">移动</button></form><form method="post" action="{{ url_for('delete_file', attachment_id=file.id) }}" onsubmit="return confirm('确定删除这个文件吗？OSS 中的文件也会被删除。')"><button class="icon-button" title="删除文件">×</button></form></article>{% else %}<div class="file-empty">这个文件夹还是空的。上传文件，或从任务和笔记中添加附件。</div>{% endfor %}</div>
+    <div class="file-grid file-grid-list">{% for file in files %}<article class="file-card" draggable="true" data-file-id="{{ file.id }}"><div class="file-icon">⌑</div><div class="file-main"><a href="{{ url_for('download_attachment', attachment_id=file.id) }}" class="file-name">{{ file.original_name }}</a><small>{{ (file.size / 1024)|round(1) }} KB{% if not folder and file.folder %} · 位置：{{ folder_paths[file.folder.id] }}{% endif %}{% if file.task %} · 任务：{{ file.task.title }}{% endif %}{% if file.note %} · 笔记：{{ file.note.title }}{% endif %}</small></div><form method="post" action="{{ url_for('move_file', attachment_id=file.id) }}" class="move-file-form"><select name="folder_id" title="移动到文件夹"><option value="">根目录</option>{% for destination in all_folders %}<option value="{{ destination.id }}" {% if file.folder_id == destination.id %}selected{% endif %}>{{ folder_paths[destination.id] }}</option>{% endfor %}</select><button class="button ghost small">移动</button></form><form method="post" action="{{ url_for('delete_file', attachment_id=file.id) }}" onsubmit="return confirm('确定删除这个文件吗？OSS 中的文件也会被删除。')"><button class="icon-button" title="删除文件">×</button></form></article>{% else %}<div class="file-empty">{% if folder %}这个文件夹还是空的。上传文件，或从任务和笔记中添加附件。{% else %}还没有任何文件。上传文件，或从任务和笔记中添加附件。{% endif %}</div>{% endfor %}</div>
     <p class="drop-hint">将文件拖到左侧文件夹即可移动，也可以在文件卡片中选择任意目标文件夹。</p>
   </section>
 </div>

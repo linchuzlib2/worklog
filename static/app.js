@@ -44,6 +44,12 @@ document.querySelectorAll('[data-rename]').forEach((button) => {
   });
 });
 
+document.querySelectorAll('.tree-toggle:not(.blank)').forEach((toggle) => {
+  toggle.addEventListener('click', () => {
+    toggle.closest('.tree-folder').classList.toggle('open');
+  });
+});
+
 document.querySelectorAll('.duplicate-aware-upload').forEach((form) => {
   form.addEventListener('submit', async (event) => {
     const input = form.querySelector('input[type="file"]');
