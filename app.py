@@ -270,12 +270,14 @@ def index():
     pending = sorted((i for i in items if not i["done"]), key=lambda i: i["sort_time"])
     finished = sorted((i for i in items if i["done"]), key=lambda i: i["sort_time"], reverse=True)
     items = pending + finished
+    shown_pending, shown_finished = len(pending), len(finished)
 
     notes = Note.query.order_by(Note.updated_at.desc()).limit(8).all()
     total_pending = Task.query.filter(Task.status != "done").count() + Schedule.query.filter(Schedule.completed.is_(False)).count()
     total_done = Task.query.filter(Task.status == "done").count() + Schedule.query.filter(Schedule.completed.is_(True)).count()
     return render_template("index.html", items=items, notes=notes, current_status=status, query=query,
-                           total_pending=total_pending, total_done=total_done)
+                           total_pending=total_pending, total_done=total_done,
+                           shown_pending=shown_pending, shown_finished=shown_finished)
 
 
 @app.route("/schedule", methods=["GET", "POST"])
@@ -468,12 +470,25 @@ def file_manager():
     folders = Folder.query.filter_by(parent_id=folder_id).order_by(Folder.name).all()
     files = Attachment.query.filter_by(folder_id=folder_id).order_by(Attachment.created_at.desc()).all()
     all_folders = Folder.query.order_by(Folder.name).all()
+    children_map = {}
+    for entry in all_folders:
+        children_map.setdefault(entry.parent_id, []).append(entry)
+
+    def folder_path(entry):
+        parts = []
+        while entry:
+            parts.append(entry.name)
+            entry = entry.parent
+        return " / ".join(reversed(parts))
+
+    folder_paths = {entry.id: folder_path(entry) for entry in all_folders}
     breadcrumbs = []
     current = folder
     while current:
         breadcrumbs.append(current)
         current = current.parent
-    return render_template("file_manager.html", folder=folder, folders=folders, files=files, all_folders=all_folders, breadcrumbs=list(reversed(breadcrumbs)))
+    return render_template("file_manager.html", folder=folder, folders=folders, files=files, all_folders=all_folders,
+                           folder_paths=folder_paths, children_map=children_map, breadcrumbs=list(reversed(breadcrumbs)))
 
 
 @app.post("/files/folders")

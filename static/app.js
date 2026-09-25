@@ -20,15 +20,27 @@ document.querySelectorAll('.file-card[draggable="true"]').forEach((file) => {
   });
   file.addEventListener('dragend', () => file.classList.remove('dragging'));
 });
-document.querySelectorAll('.folder-card[data-folder-id]').forEach((folder) => {
-  folder.addEventListener('dragover', (event) => { event.preventDefault(); folder.classList.add('drop-target'); });
+document.querySelectorAll('.folder-card[data-folder-id], .tree-folder[data-folder-id]').forEach((folder) => {
+  folder.addEventListener('dragover', (event) => { event.preventDefault(); event.stopPropagation(); folder.classList.add('drop-target'); });
   folder.addEventListener('dragleave', () => folder.classList.remove('drop-target'));
   folder.addEventListener('drop', async (event) => {
     event.preventDefault();
+    event.stopPropagation();
     folder.classList.remove('drop-target');
     const fileId = event.dataTransfer.getData('text/plain');
     const response = await fetch(`/files/${fileId}/move`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folder_id: folder.dataset.folderId }) });
     if (response.ok) window.location.reload();
+  });
+});
+
+document.querySelectorAll('[data-rename]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const item = button.closest('.tree-folder');
+    const form = item.querySelector(':scope > .rename-form');
+    form.hidden = false;
+    const input = form.querySelector('input');
+    input.focus();
+    input.select();
   });
 });
 

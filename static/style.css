@@ -15,3 +15,24 @@
 /* Workbench merged list: tasks + schedules */
 .dashboard-grid{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)}.dashboard-grid .dashboard-column:last-child{grid-column:auto}@media(max-width:1100px){.dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-grid .dashboard-column:last-child{grid-column:1 / -1}}@media(max-width:850px){.dashboard-grid{grid-template-columns:1fr}}
 .title-links{display:flex;gap:14px}.title-links a{font-size:12px;color:var(--green)}.type-badge{flex:none;font-size:10px;padding:3px 8px;border-radius:10px;background:var(--mint);color:var(--green)}.type-badge.schedule{background:#fde8df;color:var(--coral)}.row-time{flex:none;font-size:11px;color:var(--muted)}.merged-row.is-done{opacity:.72}
+/* Workbench list group headers */
+.list-group-header{display:flex;align-items:center;gap:8px;margin:6px 0 10px;font-size:12px;font-weight:700;color:var(--green);letter-spacing:1px}.list-group-header b{font-size:11px;background:var(--mint);border-radius:10px;padding:2px 8px}.list-group-header.done{color:var(--muted)}.list-group-header.done b{background:#edf0ed}
+/* File manager: folder tree sidebar + file list */
+.file-layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:22px;align-items:start}
+.folder-tree{border:1px solid var(--line);border-radius:8px;background:#fff;padding:10px 8px}
+.tree-folder .tree-folder{margin-left:14px}
+.tree-row{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.tree-link{display:flex;align-items:center;gap:7px;flex:1;min-width:0;padding:7px 8px;border-radius:6px;font-size:13px}
+.tree-link .folder-icon{font-size:13px}.tree-link small{color:var(--muted);font-size:10px}
+.tree-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tree-folder.active>.tree-row>.tree-link,.tree-link:hover{background:var(--mint);color:var(--green)}
+.tree-folder.active>.tree-row>.tree-link{font-weight:600}
+.tree-actions{display:none;align-items:center;gap:2px}
+.tree-row:hover .tree-actions{display:flex}
+.tree-folder.drop-target>.tree-row{outline:2px dashed var(--green);outline-offset:-2px;border-radius:6px}
+.rename-form{display:flex;gap:4px;padding:4px 6px 4px 22px}
+.rename-form input{flex:1;min-width:0;border:1px solid var(--line);border-radius:5px;padding:4px 8px;font:12px inherit;outline-color:var(--green)}
+.folder-files{min-width:0}
+.file-grid-list{display:flex;flex-direction:column;gap:10px;padding-top:18px}
+.file-grid-list .file-card{min-height:0}
+@media(max-width:850px){.file-layout{grid-template-columns:1fr}}

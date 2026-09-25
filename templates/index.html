@@ -12,6 +12,8 @@
     <div class="section-title"><h2>任务与日程</h2><div class="title-links"><a href="{{ url_for('new_task') }}">新建任务　→</a><a href="{{ url_for('schedule') }}">管理日程　→</a></div></div>
     <div class="task-list">
       {% for item in items %}
+      {% if loop.first and not item.done %}<div class="list-group-header"><span>待处理</span><b>{{ shown_pending }}</b></div>{% endif %}
+      {% if item.done and (loop.first or not items[loop.index0 - 1].done) %}<div class="list-group-header done"><span>已完成</span><b>{{ shown_finished }}</b></div>{% endif %}
       <article class="task-row merged-row {% if item.done %}is-done{% endif %}">
         {% if item.kind == 'task' %}
         <form method="post" action="{{ url_for('update_task_status', task_id=item.id) }}"><input type="hidden" name="status" value="{{ 'done' if not item.done else 'todo' }}"><button class="check {% if item.done %}checked{% endif %}" title="切换完成状态">{% if item.done %}✓{% endif %}</button></form>
