@@ -594,6 +594,9 @@ def polish_note(note_id):
         return jsonify({"error": str(error)}), 502
     paragraphs = [line.strip() for line in polished.splitlines() if line.strip()]
     html = "".join(f"<p>{line}</p>" for line in paragraphs)
+    if not html.strip():
+        # AI 返回空结果时绝不能覆盖原笔记，保底返回错误
+        return jsonify({"error": "AI 返回了空内容，为保护原笔记未做任何修改"}), 502
     note.content = sanitize_html(html)
     note.updated_at = datetime.utcnow()
     db.session.commit()
@@ -620,6 +623,8 @@ def polish_text():
         return jsonify({"error": str(error)}), 502
     paragraphs = [line.strip() for line in polished.splitlines() if line.strip()]
     html = "".join(f"<p>{line}</p>" for line in paragraphs)
+    if not html.strip():
+        return jsonify({"error": "AI 返回了空内容，请重试"}), 502
     return jsonify({"html": html, "text": polished})
 
 

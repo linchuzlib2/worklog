@@ -90,14 +90,26 @@ def _post(path, payload):
 
 
 def chat(messages, temperature=0.3, max_tokens=2048):
-    """对话补全，返回文本。"""
+    """对话补全，返回文本。防御推理模型空 content / think 标签等异常。"""
     data = _post("chat/completions", {
         "model": chat_model(),
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
     })
-    return data["choices"][0]["message"]["content"]
+    try:
+        message = data["choices"][0]["message"]
+        content = message.get("content") or ""
+    except (KeyError, IndexError, TypeError) as error:
+        raise AIError(f"AI 接口响应结构异常：{str(data)[:300]}") from error
+    # 部分模型会带 <think>...</think> 推理前缀，剔除
+    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+    if not content:
+        # 推理模型可能把正文放在 reasoning_content
+        content = (message.get("reasoning_content") or "").strip()
+    if not content:
+        raise AIError(f"AI 返回了空内容（finish_reason: {data['choices'][0].get('finish_reason', '?')}），原始响应：{str(data)[:200]}")
+    return content
 
 
 def embed(texts):
