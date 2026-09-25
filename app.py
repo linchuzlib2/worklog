@@ -678,18 +678,64 @@ def mindmap():
 
 @app.post("/mindmap/tasks/create")
 def mindmap_create_task():
-    title = request.form.get("title", "").strip()
-    parent_id = request.form.get("parent_id", type=int) or None
+    payload = request.get_json(silent=True) or request.form
+    title = (payload.get("title") or "").strip()
+    raw_parent = payload.get("parent_id")
+    parent_id = int(raw_parent) if raw_parent not in (None, "", 0, "0") else None
     if not title:
+        if request.is_json:
+            return jsonify({"error": "请填写节点名称"}), 400
         flash("请填写节点名称", "error")
     else:
         if parent_id:
             db.get_or_404(Task, parent_id)
-        db.session.add(Task(title=title, parent_id=parent_id))
+        task = Task(title=title, parent_id=parent_id)
+        db.session.add(task)
         db.session.commit()
         sync_database()
+        if request.is_json:
+            return jsonify({"ok": True, "id": task.id})
         flash("节点已创建", "success")
     return redirect(url_for("mindmap"))
+
+
+@app.post("/mindmap/tasks/<int:task_id>/move")
+def mindmap_move_task(task_id):
+    task = db.get_or_404(Task, task_id)
+    payload = request.get_json(silent=True) or request.form
+    raw_parent = payload.get("parent_id")
+    new_parent_id = int(raw_parent) if raw_parent not in (None, "", 0, "0") else None
+    if new_parent_id == task.id:
+        return jsonify({"error": "不能移动到自身"}), 400
+    if new_parent_id:
+        ancestor = db.session.get(Task, new_parent_id)
+        while ancestor:
+            if ancestor.id == task.id:
+                return jsonify({"error": "不能移动到自己的子节点下"}), 400
+            ancestor = ancestor.parent
+        task.parent_id = new_parent_id
+    else:
+        task.parent_id = None
+    db.session.commit()
+    sync_database()
+    return jsonify({"ok": True})
+
+
+@app.post("/mindmap/tasks/<int:task_id>/delete-node")
+def mindmap_delete_node(task_id):
+    """仅删除当前节点，子节点提升一级（模仿 MindNow 删除逻辑）"""
+    with db.session.no_autoflush:
+        task = db.get_or_404(Task, task_id)
+        old_parent_id = task.parent_id
+        children_ids = [child.id for child in Task.query.filter_by(parent_id=task_id).all()]
+    db.session.expunge_all()
+    db.session.execute(db.update(Task).where(Task.parent_id == task_id).values(parent_id=old_parent_id))
+    db.session.commit()
+    task = db.session.get(Task, task_id)
+    db.session.delete(task)
+    db.session.commit()
+    sync_database()
+    return jsonify({"ok": True})
 
 
 @app.post("/mindmap/tasks/<int:task_id>/rename")

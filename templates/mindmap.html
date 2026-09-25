@@ -2,23 +2,41 @@
 {% block title %}任务导图{% endblock %}
 {% block content %}
 <div class="mindmap-page">
-<section class="page-heading"><div><p class="eyebrow">MIND MAP</p><h1>任务思维导图</h1><p class="subtitle">任务的创建与编辑都在这里完成，无限层级节点，可关联笔记和附件。</p></div><div class="top-actions"><form method="post" action="{{ url_for('mindmap_create_task') }}" class="inline-form"><input name="title" required placeholder="新任务节点名称"><input type="hidden" name="parent_id" value=""><button class="button primary">＋ 添加根节点</button></form></div></section>
-<div class="mindmap-layout">
-  <div class="map-canvas-wrap"><svg id="map-canvas"></svg></div>
-  <aside class="map-panel" id="map-panel">
-    <p class="muted map-panel-hint">点击左侧节点查看和编辑</p>
-  </aside>
+<div class="mm-toolbar">
+  <span class="mm-brand">◈ 任务导图</span>
+  <span class="mm-sep"></span>
+  <button class="mm-btn" data-mm-action="child" title="添加子节点 (Tab)">＋ 子节点</button>
+  <button class="mm-btn" data-mm-action="sibling" title="添加同级节点 (Enter)">＋ 同级</button>
+  <button class="mm-btn" data-mm-action="delete-node" title="删除当前节点（保留子节点）">－ 删节点</button>
+  <button class="mm-btn" data-mm-action="delete-tree" title="删除节点及全部子节点">✕ 删子树</button>
+  <span class="mm-sep"></span>
+  <button class="mm-btn" data-mm-action="done" title="切换完成状态">✓ 完成</button>
+  <button class="mm-btn" data-mm-action="detail" title="打开任务详情">详情 →</button>
+  <span class="mm-flex"></span>
+  <span class="mm-zoom-label" id="mm-zoom-label">100%</span>
+  <button class="mm-btn" data-mm-action="zoom-out" title="缩小 (Ctrl -)">－</button>
+  <button class="mm-btn" data-mm-action="zoom-in" title="放大 (Ctrl +)">＋</button>
+  <button class="mm-btn" data-mm-action="zoom-fit" title="适应画布">最适合</button>
+  <button class="mm-btn" data-mm-action="center" title="回到中心">⌂</button>
+</div>
+<div class="mindmap-layout mm-full">
+  <div class="map-canvas-wrap" id="mm-canvas-wrap">
+    <svg id="map-canvas"></svg>
+    <div class="mm-hint">双击节点编辑 · Tab 加子节点 · Enter 加同级 · Delete 删除 · 拖拽节点调整结构 · 空白处拖动画布 · 滚轮缩放</div>
+  </div>
 </div>
 </div>
 <script type="application/json" id="tree-data">{{ tree|tojson }}</script>
 <script>
 (function () {
   var data = JSON.parse(document.getElementById('tree-data').textContent);
-  var NW = 168, NH = 40, HGAP = 72, VGAP = 12, PAD = 30;
-  var root = { id: 0, title: '任务', root: true, status: 'root', notes: [], attachments: [], children: data };
+  var NW = 180, NH = 42, HGAP = 76, VGAP = 14, PAD = 40;
+  var root = { id: 0, title: '任务', root: true, status: 'root', priority: 'medium', due_date: '', description: '', notes: [], attachments: [], children: data };
+  var wrap = document.getElementById('mm-canvas-wrap');
   var svg = document.getElementById('map-canvas');
   var NS = 'http://www.w3.org/2000/svg';
-  var selected = null;
+  var selected = null, editing = null;
+  var view = { x: 0, y: 0, k: 1 };
 
   function measure(node) {
     if (!node.children || !node.children.length) { node.subH = NH; return; }
@@ -27,47 +45,41 @@
     total += VGAP * (node.children.length - 1);
     node.subH = Math.max(NH, total);
   }
-
   function assign(node, x, y) {
     node.x = x; node.y = y;
     if (!node.children || !node.children.length) return;
     var childX = x + NW + HGAP;
     var cursor = y - node.subH / 2;
     node.children.forEach(function (c) {
-      var cy = cursor + c.subH / 2;
-      assign(c, childX, cy);
+      assign(c, childX, cursor + c.subH / 2);
       cursor += c.subH + VGAP;
     });
   }
-
   function el(tag, attrs, text) {
     var e = document.createElementNS(NS, tag);
     for (var k in attrs) e.setAttribute(k, attrs[k]);
     if (text !== undefined) e.textContent = text;
     return e;
   }
-
-  function nodeFill(node) {
-    if (node.root) return '#263638';
-    if (node.status === 'done') return '#e4ebe6';
-    return { high: '#fde8df', medium: '#dcefe5', low: '#f2f4f1' }[node.priority] || '#dcefe5';
+  function nodeFill(n) {
+    if (n.root) return '#263638';
+    if (n.status === 'done') return '#e4ebe6';
+    return { high: '#fde8df', medium: '#dcefe5', low: '#f2f4f1' }[n.priority] || '#dcefe5';
   }
-  function nodeColor(node) {
-    if (node.root) return '#fff';
-    if (node.status === 'done') return '#9aa8a0';
-    return { high: '#c65d4d', medium: '#238363', low: '#7d8786' }[node.priority] || '#238363';
+  function nodeColor(n) {
+    if (n.root) return '#fff';
+    if (n.status === 'done') return '#9aa8a0';
+    return { high: '#c65d4d', medium: '#238363', low: '#7d8786' }[n.priority] || '#238363';
   }
 
   function draw(node) {
     if (node.parent) {
-      var x1 = node.parent.x + NW, y1 = node.parent.y;
-      var x2 = node.x, y2 = node.y;
-      var mx = (x1 + x2) / 2;
+      var x1 = node.parent.x + NW, y1 = node.parent.y, x2 = node.x, y2 = node.y, mx = (x1 + x2) / 2;
       svg.appendChild(el('path', { d: 'M' + x1 + ' ' + y1 + ' C ' + mx + ' ' + y1 + ', ' + mx + ' ' + y2 + ', ' + x2 + ' ' + y2, fill: 'none', stroke: '#b8c6c0', 'stroke-width': 1.6 }));
     }
     var g = el('g', { class: 'map-node' + (node === selected ? ' selected' : ''), transform: 'translate(' + node.x + ',' + (node.y - NH / 2) + ')' });
     g.appendChild(el('rect', { width: NW, height: NH, rx: 9, fill: nodeFill(node), stroke: node === selected ? '#238363' : 'transparent', 'stroke-width': 2 }));
-    var label = node.title.length > 10 ? node.title.slice(0, 10) + '…' : node.title;
+    var label = node.title.length > 11 ? node.title.slice(0, 11) + '…' : node.title;
     var t = el('text', { x: 12, y: NH / 2 + 5, fill: nodeColor(node), 'font-size': 13, 'font-weight': node.root ? 700 : 500 });
     t.textContent = label;
     g.appendChild(t);
@@ -76,21 +88,123 @@
     if (node.attachments.length) badges.push('⌑' + node.attachments.length);
     if (node.children.length) badges.push('＋' + node.children.length);
     if (badges.length) g.appendChild(el('text', { x: NW - 8, y: NH / 2 + 4, fill: '#7d8786', 'font-size': 10, 'text-anchor': 'end' }, badges.join(' ')));
-    g.addEventListener('click', function (ev) { ev.stopPropagation(); select(node); });
+    g.addEventListener('click', function (ev) { ev.stopPropagation(); if (dragState.moved) return; select(node); });
+    g.addEventListener('dblclick', function (ev) { ev.stopPropagation(); startEdit(node); });
+    enableNodeDrag(g, node);
     svg.appendChild(g);
     (node.children || []).forEach(draw);
+  }
+
+  // ---- inline edit (MindNow style) ----
+  function startEdit(node) {
+    if (node.root || editing) return;
+    editing = node;
+    var fo = el('foreignObject', { x: node.x, y: node.y - NH / 2, width: NW, height: NH });
+    var input = document.createElement('input');
+    input.value = node.title;
+    input.className = 'mm-edit-input';
+    fo.appendChild(input);
+    svg.appendChild(fo);
+    input.focus(); input.select();
+    function commit(save) {
+      if (!editing) return;
+      var val = input.value.trim();
+      editing = null;
+      if (save && val) {
+        post('/mindmap/tasks/' + node.id + '/rename', { title: val });
+      } else { render(); }
+    }
+    input.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); commit(true); }
+      if (ev.key === 'Escape') { ev.preventDefault(); commit(false); }
+    });
+    input.addEventListener('blur', function () { commit(true); });
+  }
+
+  function post(url, data) {
+    var fd = new FormData();
+    Object.keys(data || {}).forEach(function (k) { fd.append(k, data[k]); });
+    fetch(url, { method: 'POST', body: fd }).then(function (r) { if (!r.ok) throw 0; return r.json ? r : r; }).then(function () { location.reload(); }).catch(function () { location.reload(); });
+  }
+
+  // ---- node drag to re-parent (MindNow style) ----
+  var dragState = { dragging: null, moved: false, ghost: null };
+
+  function enableNodeDrag(g, node) {
+    if (node.root) return;
+    g.addEventListener('mousedown', function (ev) {
+      if (ev.button !== 0 || editing) return;
+      dragState.dragging = node; dragState.moved = false;
+      dragState.startX = ev.clientX; dragState.startY = ev.clientY;
+      ev.preventDefault();
+    });
+  }
+
+  document.addEventListener('mousemove', function (ev) {
+    if (!dragState.dragging) return;
+    var dx = ev.clientX - dragState.startX, dy = ev.clientY - dragState.startY;
+    if (!dragState.moved && Math.abs(dx) + Math.abs(dy) > 5) {
+      dragState.moved = true;
+      var n = dragState.dragging;
+      dragState.ghost = el('rect', { width: NW, height: NH, rx: 9, fill: 'rgba(35,131,99,.15)', stroke: '#238363', 'stroke-dasharray': '4 3', x: n.x + dx / view.k, y: n.y - NH / 2 + dy / view.k });
+      svg.appendChild(dragState.ghost);
+    }
+    if (dragState.moved && dragState.ghost) {
+      dragState.ghost.setAttribute('x', dragState.dragging.x + dx / view.k);
+      dragState.ghost.setAttribute('y', dragState.dragging.y - NH / 2 + dy / view.k);
+      document.querySelectorAll('.map-node').forEach(function (gEl) { gEl.classList.remove('drop-hint'); });
+      var target = nodeAt(dragState.dragging.x + dx / view.k, dragState.dragging.y + dy / view.k, dragState.dragging);
+      if (target) highlightNode(target);
+    }
+  });
+
+  document.addEventListener('mouseup', function (ev) {
+    if (!dragState.dragging) return;
+    var node = dragState.dragging;
+    var dx = ev.clientX - dragState.startX, dy = ev.clientY - dragState.startY;
+    var moved = dragState.moved;
+    if (dragState.ghost) { svg.removeChild(dragState.ghost); dragState.ghost = null; }
+    document.querySelectorAll('.map-node').forEach(function (g) { g.classList.remove('drop-hint'); });
+    dragState.dragging = null;
+    if (moved) {
+      var target = nodeAt(node.x + dx / view.k, node.y + dy / view.k, node);
+      if (target && target !== node) {
+        fetch('/mindmap/tasks/' + node.id + '/move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ parent_id: target.id }) })
+          .then(function (r) { return r.json(); }).then(function (res) { if (res.error) alert(res.error); location.reload(); });
+        return;
+      }
+      render();
+    }
+  });
+
+  function highlightNode(target) {
+    document.querySelectorAll('.map-node').forEach(function (g) {
+      var t = g.__node;
+      if (t === target) g.classList.add('drop-hint');
+    });
+  }
+
+  function nodeAt(x, y, exclude) {
+    var found = null;
+    (function walk(n) {
+      if (n !== exclude && !n.root) {
+        if (x >= n.x && x <= n.x + NW && y >= n.y - NH / 2 && y <= n.y + NH / 2) { found = n; return; }
+      }
+      (n.children || []).forEach(function (c) { if (!found) walk(c); });
+    })(root);
+    return found;
   }
 
   function findByTree(node, id) {
     if (node.id === id) return node;
     for (var i = 0; i < (node.children || []).length; i++) {
-      var found = findByTree(node.children[i], id);
-      if (found) return found;
+      var f = findByTree(node.children[i], id);
+      if (f) return f;
     }
     return null;
   }
 
-  // annotate tree with parent refs & findable notes/attachments from URL data
+  // annotate parents & store refs
   (function annotate(node, parent) {
     node.parent = parent;
     (node.children || []).forEach(function (c) { annotate(c, node); });
@@ -98,48 +212,15 @@
 
   function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 
+  // ---- selection panel (context) ----
   function select(node) {
     selected = node;
     render();
-    var panel = document.getElementById('map-panel');
-    if (node.root) {
-      panel.innerHTML = '<h2>任务导图</h2><p class="muted">这是虚拟根节点。在右上角添加根任务，或点击任意节点进行编辑。</p>';
-      return;
-    }
-    var linkedNoteIds = node.notes.map(function (n) { return n.id; });
-    var linkedAttIds = node.attachments.map(function (a) { return a.id; });
-    var noteOptions = window.__allNotes.filter(function (n) { return linkedNoteIds.indexOf(n.id) < 0; })
-      .map(function (n) { return '<option value="' + n.id + '">' + esc(n.title) + '</option>'; }).join('');
-    var attOptions = window.__allAttachments.filter(function (a) { return linkedAttIds.indexOf(a.id) < 0; })
-      .map(function (a) { return '<option value="' + a.id + '">' + esc(a.name) + '</option>'; }).join('');
-    var html = '';
-    html += '<div class="panel-head"><span class="status-label ' + node.status + '">' + (node.status === 'done' ? '已完成' : (node.status === 'doing' ? '进行中' : '待处理')) + '</span><h2>' + esc(node.title) + '</h2></div>';
-    html += '<a class="button ghost small" href="/tasks/' + node.id + '">打开任务详情 →</a>';
-    html += '<form method="post" action="/tasks/' + node.id + '/status"><input type="hidden" name="status" value="' + (node.status === 'done' ? 'todo' : 'done') + '"><input type="hidden" name="next" value="/mindmap"><button class="button ghost small panel-btn">' + (node.status === 'done' ? '标记为待处理' : '标记为已完成') + '</button></form>';
-    html += '<h3>编辑任务</h3>';
-    html += '<form method="post" action="/mindmap/tasks/' + node.id + '/update" class="edit-form">';
-    html += '<label>标题<input name="title" value="' + esc(node.title) + '" required></label>';
-    html += '<label>状态<select name="status">' + ['todo', 'doing', 'done'].map(function (s) { return '<option value="' + s + '"' + (node.status === s ? ' selected' : '') + '>' + { todo: '待处理', doing: '进行中', done: '已完成' }[s] + '</option>'; }).join('') + '</select></label>';
-    html += '<label>优先级<select name="priority">' + ['high', 'medium', 'low'].map(function (p) { return '<option value="' + p + '"' + (node.priority === p ? ' selected' : '') + '>' + { high: '高优先级', medium: '普通', low: '低优先级' }[p] + '</option>'; }).join('') + '</select></label>';
-    html += '<label>截止日期<input type="date" name="due_date" value="' + esc(node.due_date || '') + '"></label>';
-    html += '<label>描述<textarea name="description" rows="3" placeholder="任务描述...">' + esc((node.description || '').replace(/<[^>]+>/g, '')) + '</textarea></label>';
-    html += '<button class="button primary small">保存修改</button></form>';
-    html += '<h3>添加子节点</h3><form method="post" action="/mindmap/tasks/create" class="panel-form"><input type="hidden" name="parent_id" value="' + node.id + '"><input name="title" required placeholder="子节点名称"><button class="button primary small">添加</button></form>';
-    html += '<h3>关联笔记 (' + node.notes.length + ')</h3>';
-    node.notes.forEach(function (n) {
-      html += '<div class="panel-item"><a href="/notes/' + n.id + '">▤ ' + esc(n.title) + '</a><form method="post" action="/mindmap/tasks/' + node.id + '/unlink"><input type="hidden" name="kind" value="note"><input type="hidden" name="item_id" value="' + n.id + '"><button class="icon-button" title="解除关联">✕</button></form></div>';
-    });
-    html += noteOptions ? '<form method="post" action="/mindmap/tasks/' + node.id + '/link" class="panel-form"><input type="hidden" name="kind" value="note"><select name="item_id">' + noteOptions + '</select><button class="button ghost small">关联</button></form>' : '<p class="muted small">没有更多可关联的笔记。</p>';
-    html += '<h3>关联附件 (' + node.attachments.length + ')</h3>';
-    node.attachments.forEach(function (a) {
-      html += '<div class="panel-item"><a href="/attachments/' + a.id + '">⌑ ' + esc(a.name) + '</a><form method="post" action="/mindmap/tasks/' + node.id + '/unlink"><input type="hidden" name="kind" value="attachment"><input type="hidden" name="item_id" value="' + a.id + '"><button class="icon-button" title="解除关联">✕</button></form></div>';
-    });
-    html += attOptions ? '<form method="post" action="/mindmap/tasks/' + node.id + '/link" class="panel-form"><input type="hidden" name="kind" value="attachment"><select name="item_id">' + attOptions + '</select><button class="button ghost small">关联</button></form>' : '<p class="muted small">没有更多可关联的附件。</p>';
-    html += '<h3>危险操作</h3><form method="post" action="/tasks/' + node.id + '/delete" onsubmit="return confirm(\'确定删除该节点及其所有子节点、笔记和附件吗？\')"><input type="hidden" name="next" value="/mindmap"><button class="button danger small">删除节点及子树</button></form>';
-    panel.innerHTML = html;
-    panel.scrollTop = 0;
+    if (node.root) return;
+    wrap.dataset.selectedId = node.id;
   }
 
+  // ---- render with view transform ----
   function render() {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     measure(root);
@@ -150,11 +231,125 @@
       height = Math.max(height, node.y + NH / 2);
       (node.children || []).forEach(bounds);
     })(root);
-    svg.setAttribute('width', width + PAD);
-    svg.setAttribute('height', height + PAD);
-    svg.style.height = Math.max(height + PAD, 320) + 'px';
-    draw(root);
+    var W = width + PAD, H = height + PAD;
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    svg.setAttribute('width', W); svg.setAttribute('height', H);
+    svg.style.height = Math.max(H, 320) + 'px';
+    var gAll = el('g', { transform: 'translate(' + view.x + ',' + view.y + ') scale(' + view.k + ')' });
+    svg.appendChild(gAll);
+    // draw into gAll
+    (function drawAll(node) {
+      if (node.parent) {
+        var x1 = node.parent.x + NW, y1 = node.parent.y, x2 = node.x, y2 = node.y, mx = (x1 + x2) / 2;
+        gAll.appendChild(el('path', { d: 'M' + x1 + ' ' + y1 + ' C ' + mx + ' ' + y1 + ', ' + mx + ' ' + y2 + ', ' + x2 + ' ' + y2, fill: 'none', stroke: '#b8c6c0', 'stroke-width': 1.6 }));
+      }
+      var g = el('g', { class: 'map-node' + (node === selected ? ' selected' : '') + (node === root ? ' root-node' : ''), transform: 'translate(' + node.x + ',' + (node.y - NH / 2) + ')' });
+      g.__node = node;
+      g.appendChild(el('rect', { width: NW, height: NH, rx: 9, fill: nodeFill(node), stroke: node === selected ? '#238363' : 'transparent', 'stroke-width': 2 }));
+      var label = node.title.length > 11 ? node.title.slice(0, 11) + '…' : node.title;
+      var t = el('text', { x: 12, y: NH / 2 + 5, fill: nodeColor(node), 'font-size': 13, 'font-weight': node.root ? 700 : 500 });
+      t.textContent = label;
+      g.appendChild(t);
+      var badges = [];
+      if (node.notes.length) badges.push('▤' + node.notes.length);
+      if (node.attachments.length) badges.push('⌑' + node.attachments.length);
+      if (node.children.length) badges.push('＋' + node.children.length);
+      if (badges.length) g.appendChild(el('text', { x: NW - 8, y: NH / 2 + 4, fill: '#7d8786', 'font-size': 10, 'text-anchor': 'end' }, badges.join(' ')));
+      g.addEventListener('click', function (ev) { ev.stopPropagation(); if (dragState.moved) return; select(node); });
+      g.addEventListener('dblclick', function (ev) { ev.stopPropagation(); startEdit(node); });
+      enableNodeDrag(g, node);
+      gAll.appendChild(g);
+      (node.children || []).forEach(drawAll);
+    })(root);
+    document.getElementById('mm-zoom-label').textContent = Math.round(view.k * 100) + '%';
   }
+
+  // ---- canvas pan & zoom ----
+  var panState = null;
+  wrap.addEventListener('mousedown', function (ev) {
+    if (ev.target.closest('.map-node') || editing) return;
+    panState = { x: ev.clientX, y: ev.clientY, vx: view.x, vy: view.y };
+  });
+  document.addEventListener('mousemove', function (ev) {
+    if (!panState) return;
+    view.x = panState.vx + (ev.clientX - panState.x);
+    view.y = panState.vy + (ev.clientY - panState.y);
+    render();
+  });
+  document.addEventListener('mouseup', function () { panState = null; });
+  wrap.addEventListener('wheel', function (ev) {
+    ev.preventDefault();
+    zoom(ev.deltaY < 0 ? 1.1 : 0.9);
+  }, { passive: false });
+
+  function zoom(factor) {
+    view.k = Math.min(2.5, Math.max(0.3, view.k * factor));
+    render();
+  }
+
+  // ---- toolbar actions ----
+  document.querySelectorAll('.mm-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var action = btn.dataset.mmAction;
+      if (['zoom-in', 'zoom-out', 'zoom-fit', 'center'].indexOf(action) >= 0) {
+        if (action === 'zoom-in') zoom(1.2);
+        if (action === 'zoom-out') zoom(1 / 1.2);
+        if (action === 'zoom-fit') { view.k = 1; view.x = 0; view.y = 0; render(); }
+        if (action === 'center') { view.x = 0; view.y = 0; render(); }
+        return;
+      }
+      if (!selected || selected.root) { alert('请先点击选择一个节点'); return; }
+      if (action === 'child') { createChild(selected); }
+      if (action === 'sibling') { createSibling(selected); }
+      if (action === 'delete-node') {
+        if (confirm('仅删除该节点，子节点将提升一级，确定吗？')) post('/mindmap/tasks/' + selected.id + '/delete-node', {});
+      }
+      if (action === 'delete-tree') {
+        if (confirm('确定删除该节点及其所有子节点、笔记和附件吗？')) post('/tasks/' + selected.id + '/delete', { next: '/mindmap' });
+      }
+      if (action === 'done') {
+        post('/tasks/' + selected.id + '/status', { status: selected.status === 'done' ? 'todo' : 'done', next: '/mindmap' });
+      }
+      if (action === 'detail') { location.href = '/tasks/' + selected.id; }
+    });
+  });
+
+  function createChild(node) {
+    if (node.root) {
+      post('/mindmap/tasks/create', { title: '新任务', parent_id: '' });
+    } else {
+      fetch('/mindmap/tasks/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: '新节点', parent_id: node.id }) })
+        .then(function (r) { return r.json(); }).then(function () { location.reload(); });
+    }
+  }
+  function createSibling(node) {
+    if (node.root || !node.parent) { alert('根任务请使用"子节点"按钮创建'); return; }
+    fetch('/mindmap/tasks/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: '新节点', parent_id: node.parent.id }) })
+      .then(function (r) { return r.json(); }).then(function () { location.reload(); });
+  }
+
+  // ---- keyboard shortcuts (MindNow style) ----
+  document.addEventListener('keydown', function (ev) {
+    if (editing) return;
+    if (ev.target.matches('input, textarea, select')) return;
+    var key = ev.key;
+    if (key === 'Tab') {
+      ev.preventDefault();
+      if (selected) createChild(selected);
+    } else if (key === 'Enter') {
+      ev.preventDefault();
+      if (selected) createSibling(selected);
+    } else if (key === 'Delete' || key === 'Backspace') {
+      if (selected && !selected.root) {
+        ev.preventDefault();
+        if (confirm('删除该节点（子节点提升一级）？')) post('/mindmap/tasks/' + selected.id + '/delete-node', {});
+      }
+    } else if ((ev.ctrlKey || ev.metaKey) && (key === '=' || key === '+')) {
+      ev.preventDefault(); zoom(1.2);
+    } else if ((ev.ctrlKey || ev.metaKey) && key === '-') {
+      ev.preventDefault(); zoom(1 / 1.2);
+    }
+  });
 
   svg.addEventListener('click', function () { select(root); });
   render();
