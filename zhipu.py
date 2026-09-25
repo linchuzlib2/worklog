@@ -36,7 +36,10 @@ def _post(path, payload):
         raise ZhipuError(f"请求智谱服务失败：{error}") from error
     if response.status_code != 200:
         raise ZhipuError(f"智谱接口返回 {response.status_code}：{response.text[:300]}")
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError as error:
+        raise ZhipuError(f"智谱接口返回了无法解析的内容：{response.text[:200]}") from error
     if "choices" not in data and "data" not in data:
         raise ZhipuError(f"智谱接口响应异常：{str(data)[:300]}")
     return data

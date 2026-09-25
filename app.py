@@ -208,13 +208,14 @@ def chunk_text(text):
 
 
 def embed_document(doc):
-    """为文档分块并写入向量。"""
+    """为文档分块并写入向量（分批调用嵌入接口，避免批量超限）。"""
     KnowledgeChunk.query.filter_by(doc_id=doc.id).delete()
     chunks = chunk_text(doc.content)
-    if chunks:
-        vectors = zhipu.embed(chunks)
-        for index, (piece, vector) in enumerate(zip(chunks, vectors)):
-            doc.chunks.append(KnowledgeChunk(chunk_index=index, text=piece, embedding=json.dumps(vector)))
+    vectors = []
+    for start in range(0, len(chunks), 16):
+        vectors.extend(zhipu.embed(chunks[start:start + 16]))
+    for index, (piece, vector) in enumerate(zip(chunks, vectors)):
+        doc.chunks.append(KnowledgeChunk(chunk_index=index, text=piece, embedding=json.dumps(vector)))
     db.session.commit()
 
 
@@ -576,7 +577,9 @@ def polish_note(note_id):
     )
     try:
         polished = zhipu.chat([{"role": "user", "content": prompt}], temperature=0.3)
-    except zhipu.ZhipuError as error:
+    except Exception as error:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(error)}), 502
     paragraphs = [line.strip() for line in polished.splitlines() if line.strip()]
     html = "".join(f"<p>{line}</p>" for line in paragraphs)
@@ -592,6 +595,17 @@ def knowledge():
 
 @app.post("/knowledge/upload")
 def knowledge_upload():
+    try:
+        return _knowledge_upload_inner()
+    except Exception as error:  # 兜底：任何异常都转为页面提示，避免 500
+        import traceback
+        traceback.print_exc()
+        db.session.rollback()
+        flash(f"导入失败：{error}", "error")
+        return redirect(url_for("knowledge"))
+
+
+def _knowledge_upload_inner():
     title = (request.form.get("title") or "").strip()
     pasted = (request.form.get("content") or "").strip()
     content = ""
@@ -623,11 +637,10 @@ def knowledge_upload():
     db.session.commit()
     try:
         embed_document(doc)
-    except zhipu.ZhipuError as error:
+    except Exception as error:
         db.session.delete(doc)
         db.session.commit()
-        flash(f"向量化失败：{error}", "error")
-        return redirect(url_for("knowledge"))
+        raise error
     sync_database()
     flash(f"已导入「{doc.title}」（{doc.chunks.count()} 个知识块）", "success")
     return redirect(url_for("knowledge"))
@@ -650,12 +663,11 @@ def knowledge_ask():
         return jsonify({"error": "请输入问题"}), 400
     try:
         result = ask_knowledge(question)
-    except zhipu.ZhipuError as error:
+    except Exception as error:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(error)}), 502
     return jsonify(result)
-    sync_database()
-    flash("笔记已删除", "success")
-    return redirect(url_for("index"))
 
 
 @app.route("/files")
