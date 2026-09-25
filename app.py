@@ -642,7 +642,7 @@ def _knowledge_upload_inner():
         db.session.commit()
         raise error
     sync_database()
-    flash(f"已导入「{doc.title}」（{doc.chunks.count()} 个知识块）", "success")
+    flash(f"已导入「{doc.title}」（{len(doc.chunks)} 个知识块）", "success")
     return redirect(url_for("knowledge"))
 
 
