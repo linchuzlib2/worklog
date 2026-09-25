@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}工作簿{% endblock %} · 工作簿</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">W</span><span>工作簿</span></a>
+    <nav>
+      <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}"><span>⌂</span>工作台</a>
+      <a class="nav-link {% if request.endpoint in ['new_task', 'edit_task', 'task_detail'] %}active{% endif %}" href="{{ url_for('index', status='todo') }}"><span>✓</span>任务 <b>{{ pending_count }}</b></a>
+      <a class="nav-link {% if request.endpoint in ['new_note', 'edit_note', 'note_detail'] %}active{% endif %}" href="{{ url_for('index') }}#notes"><span>▤</span>笔记</a>
+      <a class="nav-link {% if request.endpoint in ['file_manager', 'create_folder', 'move_file', 'delete_file'] %}active{% endif %}" href="{{ url_for('file_manager') }}"><span>⌑</span>文件</a>
+      <a class="nav-link {% if request.endpoint in ['schedule', 'delete_schedule'] %}active{% endif %}" href="{{ url_for('schedule') }}"><span>◷</span>日程</a>
+      <a class="nav-link {% if request.endpoint == 'global_search' %}active{% endif %}" href="{{ url_for('global_search') }}"><span>⌕</span>搜索</a>
+    </nav>
+    <div class="sidebar-bottom"><div class="storage-status"><i class="dot {% if oss_enabled %}online{% endif %}"></i>{{ 'OSS 存储已连接' if oss_enabled else '等待配置 OSS' }}</div><small>Daily work log</small></div>
+  </aside>
+  <main class="main-content">
+    <header class="topbar"><div class="mobile-brand">工作簿</div><div class="top-actions"><a href="{{ url_for('global_search') }}" class="button ghost">⌕ 搜索</a><a href="{{ url_for('new_note') }}" class="button ghost">＋ 新笔记</a><a href="{{ url_for('new_task') }}" class="button primary">＋ 新任务</a></div></header>
+    {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-stack">{% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

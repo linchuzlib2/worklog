@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block title %}{{ attachment.original_name }}{% endblock %}
+{% block content %}
+<div class="detail-page attachment-detail" data-search-query="{{ query }}">
+  <a class="back-link" href="{{ url_for('global_search', q=query) if query else url_for('file_manager') }}">← 返回</a>
+  <div class="detail-header"><div><span class="eyebrow">文件预览</span><h1 data-highlight>{{ attachment.original_name }}</h1><div class="detail-meta">{{ (attachment.size / 1024)|round(1) }} KB · {{ attachment.content_type }}</div></div><div class="top-actions"><a class="button ghost" href="{{ url_for('download_attachment', attachment_id=attachment.id) }}">下载文件</a></div></div>
+  {% if content %}<pre class="attachment-content" data-highlight>{{ content }}</pre>{% else %}<div class="empty">此文件暂不支持在线预览，请下载后查看。</div>{% endif %}
+</div>
+{% endblock %}
