@@ -1,7 +1,7 @@
 import os
 import re
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from io import BytesIO
 
 import bleach
@@ -40,10 +40,12 @@ class Task(db.Model):
     status = db.Column(db.String(20), default="todo", nullable=False)
     priority = db.Column(db.String(20), default="medium", nullable=False)
     due_date = db.Column(db.Date, nullable=True)
+    parent_id = db.Column(db.Integer, db.ForeignKey("task.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     notes = db.relationship("Note", backref="task", cascade="all, delete-orphan", order_by="Note.updated_at.desc()")
     attachments = db.relationship("Attachment", backref="task", cascade="all, delete-orphan", order_by="Attachment.created_at.desc()")
+    children = db.relationship("Task", backref=db.backref("parent", remote_side=[id]), order_by="Task.created_at", cascade="all, delete-orphan")
 
 
 class Note(db.Model):
@@ -218,6 +220,10 @@ def migrate_schema():
     if "completed" not in schedule_columns:
         db.session.execute(db.text("ALTER TABLE schedule ADD COLUMN completed BOOLEAN NOT NULL DEFAULT 0"))
         db.session.commit()
+    task_columns = {column["name"] for column in inspector.get_columns("task")}
+    if "parent_id" not in task_columns:
+        db.session.execute(db.text("ALTER TABLE task ADD COLUMN parent_id INTEGER REFERENCES task(id)"))
+        db.session.commit()
 
 
 @app.context_processor
@@ -275,9 +281,25 @@ def index():
     notes = Note.query.order_by(Note.updated_at.desc()).limit(8).all()
     total_pending = Task.query.filter(Task.status != "done").count() + Schedule.query.filter(Schedule.completed.is_(False)).count()
     total_done = Task.query.filter(Task.status == "done").count() + Schedule.query.filter(Schedule.completed.is_(True)).count()
+    today = date.today()
+    today_tasks = Task.query.filter(Task.due_date == today, Task.status != "done").order_by(Task.priority).all()
+    day_start = datetime.combine(today, datetime.min.time())
+    day_end = datetime.combine(today, datetime.max.time())
+    today_schedules = Schedule.query.filter(Schedule.start_at.between(day_start, day_end)).order_by(Schedule.start_at).all()
+    today_items = []
+    for task in today_tasks:
+        today_items.append({"kind": "task", "id": task.id, "title": task.title, "done": False,
+                            "time_label": "截止今天", "priority": task.priority})
+    for item in today_schedules:
+        label = item.start_at.strftime("%H:%M")
+        if item.end_at:
+            label += " - " + item.end_at.strftime("%H:%M")
+        today_items.append({"kind": "schedule", "id": item.id, "title": item.title, "done": bool(item.completed),
+                            "time_label": label, "priority": None})
     return render_template("index.html", items=items, notes=notes, current_status=status, query=query,
                            total_pending=total_pending, total_done=total_done,
-                           shown_pending=shown_pending, shown_finished=shown_finished)
+                           shown_pending=shown_pending, shown_finished=shown_finished,
+                           today_items=today_items, today_label=today.strftime("%m月%d日"))
 
 
 @app.route("/schedule", methods=["GET", "POST"])
@@ -404,6 +426,9 @@ def update_task_status(task_id):
     task.status = request.form["status"]
     db.session.commit()
     sync_database()
+    next_url = request.form.get("next", "")
+    if next_url.startswith("/"):
+        return redirect(next_url)
     return redirect(request.referrer or url_for("index"))
 
 
@@ -416,6 +441,9 @@ def delete_task(task_id):
     db.session.commit()
     sync_database()
     flash("任务已删除", "success")
+    next_url = request.form.get("next", "")
+    if next_url.startswith("/"):
+        return redirect(next_url)
     return redirect(url_for("index"))
 
 
@@ -605,6 +633,112 @@ def link_attachment():
         sync_database()
         flash("文件已关联", "success")
     return redirect(request.referrer or url_for("file_manager"))
+
+
+@app.post("/attachments/<int:attachment_id>/unlink")
+def unlink_attachment(attachment_id):
+    attachment = db.get_or_404(Attachment, attachment_id)
+    target = request.form.get("target")
+    if target == "task" and attachment.task_id:
+        attachment.task_id = None
+        db.session.commit()
+        sync_database()
+        flash("已解除与任务的关联，文件仍保留在文件管理中", "success")
+    elif target == "note" and attachment.note_id:
+        attachment.note_id = None
+        db.session.commit()
+        sync_database()
+        flash("已解除与笔记的关联，文件仍保留在文件管理中", "success")
+    else:
+        flash("没有可解除的关联", "error")
+    return redirect(request.referrer or url_for("file_manager"))
+
+
+@app.get("/mindmap")
+def mindmap():
+    def task_node(task):
+        return {
+            "id": task.id,
+            "title": task.title,
+            "status": task.status,
+            "priority": task.priority,
+            "notes": [{"id": note.id, "title": note.title} for note in task.notes],
+            "attachments": [{"id": att.id, "name": att.original_name} for att in task.attachments],
+            "children": [task_node(child) for child in task.children],
+        }
+
+    roots = Task.query.filter_by(parent_id=None).order_by(Task.created_at).all()
+    tree = [task_node(task) for task in roots]
+    notes = Note.query.order_by(Note.updated_at.desc()).all()
+    attachments = Attachment.query.order_by(Attachment.created_at.desc()).all()
+    return render_template("mindmap.html", tree=tree, notes=notes, attachments=attachments)
+
+
+@app.post("/mindmap/tasks/create")
+def mindmap_create_task():
+    title = request.form.get("title", "").strip()
+    parent_id = request.form.get("parent_id", type=int) or None
+    if not title:
+        flash("请填写节点名称", "error")
+    else:
+        if parent_id:
+            db.get_or_404(Task, parent_id)
+        db.session.add(Task(title=title, parent_id=parent_id))
+        db.session.commit()
+        sync_database()
+        flash("节点已创建", "success")
+    return redirect(url_for("mindmap"))
+
+
+@app.post("/mindmap/tasks/<int:task_id>/rename")
+def mindmap_rename_task(task_id):
+    task = db.get_or_404(Task, task_id)
+    title = request.form.get("title", "").strip()
+    if title:
+        task.title = title
+        db.session.commit()
+        sync_database()
+        flash("节点已重命名", "success")
+    return redirect(url_for("mindmap"))
+
+
+@app.post("/mindmap/tasks/<int:task_id>/link")
+def mindmap_link(task_id):
+    task = db.get_or_404(Task, task_id)
+    kind = request.form.get("kind")
+    item_id = request.form.get("item_id", type=int)
+    if kind == "note" and item_id:
+        note = db.get_or_404(Note, item_id)
+        note.task_id = task.id
+    elif kind == "attachment" and item_id:
+        attachment = db.get_or_404(Attachment, item_id)
+        attachment.task_id = task.id
+    else:
+        flash("请选择要关联的内容", "error")
+        return redirect(url_for("mindmap"))
+    db.session.commit()
+    sync_database()
+    flash("已关联", "success")
+    return redirect(url_for("mindmap"))
+
+
+@app.post("/mindmap/tasks/<int:task_id>/unlink")
+def mindmap_unlink(task_id):
+    task = db.get_or_404(Task, task_id)
+    kind = request.form.get("kind")
+    item_id = request.form.get("item_id", type=int)
+    if kind == "note" and item_id:
+        note = db.get_or_404(Note, item_id)
+        if note.task_id == task.id:
+            note.task_id = None
+    elif kind == "attachment" and item_id:
+        attachment = db.get_or_404(Attachment, item_id)
+        if attachment.task_id == task.id:
+            attachment.task_id = None
+    db.session.commit()
+    sync_database()
+    flash("已解除关联", "success")
+    return redirect(url_for("mindmap"))
 
 
 @app.post("/attachments/upload")

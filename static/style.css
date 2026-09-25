@@ -47,3 +47,32 @@
 .note-card{overflow:hidden}.note-card>div{min-width:0}
 .note-card p,.note-card h3,.task-info p,.task-name,.note-list p{overflow-wrap:anywhere;word-break:break-word}
 .result-type.schedule{background:var(--mint);color:var(--green)}
+/* Dashboard today panel */
+.today-panel{border:1px solid var(--line);border-left:3px solid var(--green);border-radius:9px;background:#fff;padding:6px 14px;margin-bottom:6px}
+.today-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.today-row:last-child{border-bottom:none}
+.today-name{flex:1;min-width:0;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.today-name.completed{text-decoration:line-through;color:var(--muted)}
+.today-count{font-size:11px;background:var(--mint);color:var(--green);border-radius:10px;padding:3px 9px}
+.today-gap{margin-top:22px}
+/* Attachment row with unlink */
+.attachment-row{display:flex;align-items:center;gap:6px}
+.attachment-row .attachment{flex:1;min-width:0}
+/* Mindmap */
+.mindmap-page{padding-bottom:40px}
+.mindmap-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;align-items:start}
+.map-canvas-wrap{border:1px solid var(--line);border-radius:10px;background:#fff;overflow:auto;max-height:calc(100vh - 220px);min-height:340px}
+#map-canvas{display:block}
+.map-node{cursor:pointer}
+.map-node:hover rect{stroke:#238363}
+.map-panel{border:1px solid var(--line);border-radius:10px;background:#fff;padding:18px;max-height:calc(100vh - 220px);overflow:auto}
+.map-panel h2{font-size:16px;margin:8px 0}
+.map-panel h3{font-size:12px;margin:18px 0 8px;color:var(--muted);letter-spacing:1px}
+.map-panel .panel-head{margin-bottom:10px}
+.panel-btn{margin-top:8px}
+.panel-form{display:flex;gap:6px;margin-top:6px}
+.panel-form input,.panel-form select{flex:1;min-width:0;border:1px solid var(--line);border-radius:6px;padding:7px 9px;font:12px inherit;outline-color:var(--green);background:#fff}
+.panel-item{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:12px}
+.panel-item a{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.map-panel-hint{margin:0}
+@media(max-width:1100px){.mindmap-layout{grid-template-columns:1fr}.map-panel{max-height:none}}

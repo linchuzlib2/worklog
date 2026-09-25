@@ -16,6 +16,7 @@
     <nav>
       <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}"><span>⌂</span>工作台</a>
       <a class="nav-link {% if request.endpoint in ['new_task', 'edit_task', 'task_detail'] %}active{% endif %}" href="{{ url_for('index', status='todo') }}"><span>✓</span>任务 <b>{{ pending_count }}</b></a>
+      <a class="nav-link {% if request.endpoint == 'mindmap' %}active{% endif %}" href="{{ url_for('mindmap') }}"><span>◈</span>导图</a>
       <a class="nav-link {% if request.endpoint in ['new_note', 'edit_note', 'note_detail'] %}active{% endif %}" href="{{ url_for('index') }}#notes"><span>▤</span>笔记</a>
       <a class="nav-link {% if request.endpoint in ['file_manager', 'create_folder', 'move_file', 'delete_file'] %}active{% endif %}" href="{{ url_for('file_manager') }}"><span>⌑</span>文件</a>
       <a class="nav-link {% if request.endpoint in ['schedule', 'delete_schedule'] %}active{% endif %}" href="{{ url_for('schedule') }}"><span>◷</span>日程</a>

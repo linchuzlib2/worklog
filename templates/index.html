@@ -9,7 +9,25 @@
 <section class="toolbar"><form class="search" method="get"><span>⌕</span><input name="q" value="{{ query }}" placeholder="搜索任务、日程或描述..."></form><div class="filter-pills"><a class="pill {% if not current_status %}selected{% endif %}" href="{{ url_for('index') }}">全部</a><a class="pill {% if current_status == 'todo' %}selected{% endif %}" href="{{ url_for('index', status='todo') }}">待处理</a><a class="pill {% if current_status == 'done' %}selected{% endif %}" href="{{ url_for('index', status='done') }}">已完成</a></div></section>
 <div class="content-grid dashboard-grid">
   <section class="dashboard-column dashboard-main">
-    <div class="section-title"><h2>任务与日程</h2><div class="title-links"><a href="{{ url_for('new_task') }}">新建任务　→</a><a href="{{ url_for('schedule') }}">管理日程　→</a></div></div>
+    <div class="section-title"><h2>今日待办 · {{ today_label }}</h2><span class="today-count">{{ today_items|length }}</span></div>
+    <div class="today-panel">
+      {% for item in today_items %}
+      <div class="today-row {% if item.done %}is-done{% endif %}">
+        {% if item.kind == 'task' %}
+        <form method="post" action="{{ url_for('update_task_status', task_id=item.id) }}"><input type="hidden" name="status" value="{{ 'done' if item.done else 'todo' }}"><button class="check {% if item.done %}checked{% endif %}" title="切换完成状态">{% if item.done %}✓{% endif %}</button></form>
+        <a href="{{ url_for('task_detail', task_id=item.id) }}" class="today-name {% if item.done %}completed{% endif %}">{{ item.title }}</a>
+        {% else %}
+        <form method="post" action="{{ url_for('update_schedule_status', schedule_id=item.id) }}"><input type="hidden" name="completed" value="{{ '0' if item.done else '1' }}"><button class="check {% if item.done %}checked{% endif %}" title="切换完成状态">{% if item.done %}✓{% endif %}</button></form>
+        <a href="{{ url_for('schedule') }}" class="today-name {% if item.done %}completed{% endif %}">{{ item.title }}</a>
+        {% endif %}
+        <span class="type-badge {{ item.kind }}">{{ '任务' if item.kind == 'task' else '日程' }}</span>
+        <span class="row-time">{{ item.time_label }}</span>
+      </div>
+      {% else %}
+      <div class="empty">今天没有待办事项，享受轻松的一天。</div>
+      {% endfor %}
+    </div>
+    <div class="section-title today-gap"><h2>任务与日程</h2><div class="title-links"><a href="{{ url_for('new_task') }}">新建任务　→</a><a href="{{ url_for('schedule') }}">管理日程　→</a></div></div>
     <div class="task-list">
       {% for item in items %}
       {% if loop.first and not item.done %}<div class="list-group-header"><span>待处理</span><b>{{ shown_pending }}</b></div>{% endif %}
