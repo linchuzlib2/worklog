@@ -73,6 +73,12 @@
 .panel-form{display:flex;gap:6px;margin-top:6px}
 .link-collapsible{margin-top:6px}
 .link-collapsible[hidden]{display:none}
+/* Mindmap custom confirm dialog (native confirm suppressed in fullscreen) */
+.mm-confirm{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(22,32,30,.45);backdrop-filter:blur(2px)}
+.mm-confirm-box{background:#fff;border-radius:12px;padding:22px 24px;max-width:340px;width:calc(100% - 48px);box-shadow:0 18px 50px rgba(0,0,0,.25)}
+.mm-confirm-box p{font-size:14px;line-height:1.6;color:var(--ink);margin:0 0 16px}
+.mm-confirm-actions{display:flex;justify-content:flex-end;gap:8px}
+.mm-confirm-actions .mm-btn.danger{color:#c65d4d;border-color:#c65d4d}
 .edit-form label{display:block;font-size:11px;color:var(--muted);margin-top:10px}
 .edit-form input,.edit-form select,.edit-form textarea{display:block;width:100%;margin-top:4px;border:1px solid var(--line);border-radius:6px;padding:7px 9px;font:12px inherit;outline-color:var(--green);background:#fff;resize:vertical}
 .edit-form .button{margin-top:12px}

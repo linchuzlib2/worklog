@@ -197,6 +197,49 @@
   function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
   function stripTags(s) { return String(s || '').replace(/<[^>]+>/g, ''); }
 
+  // ---- custom confirm dialog (native confirm is suppressed in fullscreen) ----
+  function mmConfirm(message) {
+    return new Promise(function (resolve) {
+      var overlay = document.createElement('div');
+      overlay.className = 'mm-confirm';
+      var box = document.createElement('div');
+      box.className = 'mm-confirm-box';
+      var p = document.createElement('p');
+      p.textContent = message;
+      var actions = document.createElement('div');
+      actions.className = 'mm-confirm-actions';
+      var cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'mm-btn';
+      cancel.textContent = '取消';
+      var ok = document.createElement('button');
+      ok.type = 'button';
+      ok.className = 'mm-btn danger';
+      ok.textContent = '确定';
+      actions.appendChild(cancel);
+      actions.appendChild(ok);
+      box.appendChild(p);
+      box.appendChild(actions);
+      overlay.appendChild(box);
+      function close(val) {
+        document.removeEventListener('keydown', onKey, true);
+        overlay.remove();
+        resolve(val);
+      }
+      function onKey(ev) {
+        ev.stopPropagation();
+        if (ev.key === 'Escape') { ev.preventDefault(); close(false); }
+        if (ev.key === 'Enter') { ev.preventDefault(); close(true); }
+      }
+      overlay.addEventListener('mousedown', function (ev) { if (ev.target === overlay) close(false); });
+      cancel.addEventListener('click', function () { close(false); });
+      ok.addEventListener('click', function () { close(true); });
+      document.addEventListener('keydown', onKey, true);
+      document.getElementById('mm-page').appendChild(overlay);
+      ok.focus();
+    });
+  }
+
   // ---- selection & full edit panel ----
   function select(node) {
     selected = node;
@@ -295,14 +338,14 @@
             .then(function () { reloadTree(node.id); });
         }
         if (action === 'delete-node') {
-          if (confirm('仅删除该节点，子节点将提升一级，确定吗？')) {
-            fetch('/mindmap/tasks/' + node.id + '/delete-node', { method: 'POST' }).then(function () { reloadTree(node.parent && !node.parent.root ? node.parent.id : null); });
-          }
+          mmConfirm('仅删除该节点，子节点将提升一级，确定吗？').then(function (ok) {
+            if (ok) fetch('/mindmap/tasks/' + node.id + '/delete-node', { method: 'POST' }).then(function () { reloadTree(node.parent && !node.parent.root ? node.parent.id : null); });
+          });
         }
         if (action === 'delete-tree') {
-          if (confirm('确定删除该节点及其所有子节点、笔记和附件吗？')) {
-            fetch('/tasks/' + node.id + '/delete', { method: 'POST', body: new URLSearchParams({ next: '/mindmap' }) }).then(function () { reloadTree(node.parent && !node.parent.root ? node.parent.id : null); });
-          }
+          mmConfirm('确定删除该节点及其所有子节点、笔记和附件吗？').then(function (ok) {
+            if (ok) fetch('/tasks/' + node.id + '/delete', { method: 'POST', body: new URLSearchParams({ next: '/mindmap' }) }).then(function () { reloadTree(node.parent && !node.parent.root ? node.parent.id : null); });
+          });
         }
       });
     });
@@ -400,14 +443,14 @@
       if (action === 'child') { createChild(selected); }
       if (action === 'sibling') { createSibling(selected); }
       if (action === 'delete-node') {
-        if (confirm('仅删除该节点，子节点将提升一级，确定吗？')) {
-          fetch('/mindmap/tasks/' + selected.id + '/delete-node', { method: 'POST' }).then(function () { reloadTree(selected.parent && !selected.parent.root ? selected.parent.id : null); });
-        }
+        mmConfirm('仅删除该节点，子节点将提升一级，确定吗？').then(function (ok) {
+          if (ok) fetch('/mindmap/tasks/' + selected.id + '/delete-node', { method: 'POST' }).then(function () { reloadTree(selected.parent && !selected.parent.root ? selected.parent.id : null); });
+        });
       }
       if (action === 'delete-tree') {
-        if (confirm('确定删除该节点及其所有子节点、笔记和附件吗？')) {
-          fetch('/tasks/' + selected.id + '/delete', { method: 'POST', body: new URLSearchParams({ next: '/mindmap' }) }).then(function () { reloadTree(selected.parent && !selected.parent.root ? selected.parent.id : null); });
-        }
+        mmConfirm('确定删除该节点及其所有子节点、笔记和附件吗？').then(function (ok) {
+          if (ok) fetch('/tasks/' + selected.id + '/delete', { method: 'POST', body: new URLSearchParams({ next: '/mindmap' }) }).then(function () { reloadTree(selected.parent && !selected.parent.root ? selected.parent.id : null); });
+        });
       }
       if (action === 'done') {
         fetch('/tasks/' + selected.id + '/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: selected.status === 'done' ? 'todo' : 'done', next: '/mindmap' }) })
@@ -444,9 +487,9 @@
     } else if (key === 'Delete' || key === 'Backspace') {
       if (selected && !selected.root) {
         ev.preventDefault();
-        if (confirm('删除该节点（子节点提升一级）？')) {
-          fetch('/mindmap/tasks/' + selected.id + '/delete-node', { method: 'POST' }).then(function () { reloadTree(selected.parent && !selected.parent.root ? selected.parent.id : null); });
-        }
+        mmConfirm('删除该节点（子节点提升一级）？').then(function (ok) {
+          if (ok) fetch('/mindmap/tasks/' + selected.id + '/delete-node', { method: 'POST' }).then(function () { reloadTree(selected.parent && !selected.parent.root ? selected.parent.id : null); });
+        });
       }
     } else if ((ev.ctrlKey || ev.metaKey) && (key === '=' || key === '+')) {
       ev.preventDefault(); zoom(1.2);
