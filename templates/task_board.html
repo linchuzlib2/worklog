@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}任务看板{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div>
+    <p class="eyebrow">执行视图</p>
+    <h1>任务看板</h1>
+    <p class="subtitle">按状态推进，快速看到待办、进行中和已完成的任务。</p>
+  </div>
+  <div class="top-actions">
+    <a class="button ghost" href="{{ url_for('task_list') }}">清单视图</a>
+    <a class="button primary" href="{{ url_for('mindmap') }}">任务导图</a>
+  </div>
+</section>
+
+<div class="board-layout">
+  {% for column_key, label in [('todo', '待处理'), ('doing', '进行中'), ('done', '已完成')] %}
+  <section class="board-column">
+    <header>{{ label }} <span>{{ columns.get(column_key, [])|length }}</span></header>
+    {% for task in columns.get(column_key, []) %}
+    <article class="board-card {% if task.status == 'done' %}done{% endif %}">
+      <div class="board-card-head">
+        <a href="{{ url_for('task_detail', task_id=task.id) }}">{{ task.title }}</a>
+        <span class="priority {{ task.priority }}">{{ {'high':'高','medium':'中','low':'低'}[task.priority] }}</span>
+      </div>
+      {% if root_task_for(task) and root_task_for(task).id != task.id %}<div class="board-child-tag">{{ root_task_for(task).title }}</div>{% endif %}
+      <p>{{ task.description|striptags|truncate(90) or '暂无描述' }}</p>
+      <div class="board-meta">
+        {% if task.due_date %}<span>截止 {{ task.due_date.strftime('%Y-%m-%d') }}</span>{% else %}<span>未设置截止</span>{% endif %}
+        {% if task.assignee %}<span>{{ task.assignee.name }}</span>{% endif %}
+      </div>
+    </article>
+    {% else %}
+    <div class="empty board-empty">这里还没有任务</div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</div>
+{% endblock %}

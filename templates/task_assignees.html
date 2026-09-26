@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block title %}经办人管理{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div>
+    <p class="eyebrow">执行视图</p>
+    <h1>经办人管理</h1>
+    <p class="subtitle">可预设经办人，也可以在任务页面中新增，便于统一催办和导出。</p>
+  </div>
+  <div class="top-actions">
+    <a class="button ghost" href="{{ url_for('task_list') }}">任务清单</a>
+    <a class="button primary" href="{{ url_for('task_board') }}">看板</a>
+  </div>
+</section>
+
+<div class="assignee-layout">
+  <section class="panel-block">
+    <h2>新增经办人</h2>
+    <form method="post" action="{{ url_for('create_assignee') }}" class="inline-form">
+      <input type="text" name="name" placeholder="填写经办人姓名" required>
+      <button class="button primary small" type="submit">保存</button>
+    </form>
+  </section>
+
+  <section class="panel-block">
+    <h2>预设经办人</h2>
+    {% for assignee in assignees %}
+    <div class="assignee-row">
+      <strong>{{ assignee.name }}</strong>
+      <div class="assignee-actions">
+        <a class="button ghost small" href="{{ url_for('task_list', assignee_id=assignee.id) }}">查看任务</a>
+        <a class="button ghost small" href="{{ url_for('export_tasks_for_assignee', assignee_id=assignee.id) }}">导出</a>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">还没有经办人，先新增一个吧。</div>
+    {% endfor %}
+  </section>
+</div>
+{% endblock %}

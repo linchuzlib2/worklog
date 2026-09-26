@@ -4,6 +4,27 @@
 <div class="detail-page">
 	<a class="back-link" href="{{ url_for('index') }}">← 返回工作台</a>
 	<div class="detail-header"><div><span class="status-label {{ task.status }}">{{ {'todo':'待处理','doing':'进行中','done':'已完成'}[task.status] }}</span><h1 data-highlight>{{ task.title }}</h1><div class="detail-meta" data-highlight>{{ {'high':'高优先级','medium':'普通优先级','low':'低优先级'}[task.priority] }} · {% if task.due_date %}截止 {{ task.due_date }}{% else %}未设置截止日期{% endif %}</div></div><div class="top-actions"><a class="button ghost" href="{{ url_for('mindmap') }}">在导图中编辑</a><form method="post" action="{{ url_for('delete_task', task_id=task.id) }}" onsubmit="return confirm('确定删除这个任务吗？')"><button class="button danger">删除</button></form></div></div>
+	<div class="detail-meta-row">
+		{% set root_task = root_task_for(task) %}
+		{% if root_task and root_task.id != task.id %}
+			<div class="meta-badge">{{ root_task.title }}</div>
+		{% endif %}
+		{% if task.assignee %}<div class="meta-badge">{{ task.assignee.name }}</div>{% endif %}
+	</div>
+	<form class="assignment-form" method="post" action="{{ url_for('set_task_assignee', task_id=task.id) }}">
+		<label>经办人
+			<select name="assignee_id">
+				<option value="">未指定</option>
+				{% for assignee in assignees %}
+					<option value="{{ assignee.id }}" {% if task.assignee and task.assignee.id == assignee.id %}selected{% endif %}>{{ assignee.name }}</option>
+				{% endfor %}
+			</select>
+		</label>
+		<label>新增经办人
+			<input type="text" name="new_assignee_name" placeholder="输入姓名后保存到预设列表">
+		</label>
+		<button class="button primary small" type="submit">保存经办人</button>
+	</form>
 	<div class="rich-content" data-highlight>{{ task.description|safe or '<p class="muted">暂无描述。</p>'|safe }}</div>
 	<div class="related-panel">
 		<div class="section-title"><h2>关联笔记 <span class="count">{{ task.notes|length }}</span></h2><a class="button ghost small" href="{{ url_for('new_note') }}?task_id={{ task.id }}">＋ 添加笔记</a></div>

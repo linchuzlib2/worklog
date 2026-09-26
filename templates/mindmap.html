@@ -356,6 +356,8 @@
     html += '<label>状态<select name="status">' + ['todo', 'doing', 'done'].map(function (s) { return '<option value="' + s + '"' + (node.status === s ? ' selected' : '') + '>' + { todo: '待处理', doing: '进行中', done: '已完成' }[s] + '</option>'; }).join('') + '</select></label>';
     html += '<label>优先级<select name="priority">' + ['high', 'medium', 'low'].map(function (p) { return '<option value="' + p + '"' + (node.priority === p ? ' selected' : '') + '>' + { high: '高优先级', medium: '普通', low: '低优先级' }[p] + '</option>'; }).join('') + '</select></label>';
     html += '<label>截止日期<input type="date" name="due_date" value="' + esc(node.due_date || '') + '"></label>';
+    html += '<label>经办人<select name="assignee_id"><option value="">未指定</option>' + window.__allAssignees.map(function (a) { return '<option value="' + a.id + '"' + (String(node.assignee_id || '') === String(a.id) ? ' selected' : '') + '>' + esc(a.name) + '</option>'; }).join('') + '</select></label>';
+    html += '<label>新增经办人<input type="text" name="new_assignee_name" value="" placeholder="输入姓名并保存到预设"></label>';
     html += '<label>描述<textarea name="description" rows="3" placeholder="任务描述...">' + esc(stripTags(node.description)) + '</textarea></label>';
     html += '<button type="submit" class="button primary small">保存修改</button></form>';
     html += '<h3>关联笔记 (' + node.notes.length + ')</h3>';
@@ -385,7 +387,7 @@
       ev.preventDefault();
       var fd = new FormData(form);
       var payload = {};
-      ['title', 'status', 'priority', 'due_date', 'description'].forEach(function (k) { payload[k] = fd.get(k); });
+      ['title', 'status', 'priority', 'due_date', 'description', 'assignee_id', 'new_assignee_name'].forEach(function (k) { payload[k] = fd.get(k); });
       fetch('/mindmap/tasks/' + node.id + '/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
         .then(function () { reloadTree(node.id); });
     });
@@ -618,5 +620,6 @@
 <script>
 window.__allNotes = [{% for note in notes %}{id: {{ note.id }}, title: {{ note.title|tojson }} }{{ ',' if not loop.last }}{% endfor %}];
 window.__allAttachments = [{% for file in attachments %}{id: {{ file.id }}, name: {{ file.original_name|tojson }} }{{ ',' if not loop.last }}{% endfor %}];
+window.__allAssignees = [{% for assignee in assignees %}{id: {{ assignee.id }}, name: {{ assignee.name|tojson }} }{{ ',' if not loop.last }}{% endfor %}];
 </script>
 {% endblock %}

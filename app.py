@@ -1,9 +1,10 @@
+import csv
 import json
 import os
 import re
 import uuid
 from datetime import date, datetime, timedelta
-from io import BytesIO
+from io import BytesIO, StringIO
 
 import bleach
 import boto3
@@ -36,6 +37,12 @@ ALLOWED_TAGS = set(bleach.sanitizer.ALLOWED_TAGS) | {
 ALLOWED_ATTRIBUTES = {"a": ["href", "title", "target", "rel"]}
 
 
+class Assignee(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False, unique=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 class Task(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
@@ -44,11 +51,13 @@ class Task(db.Model):
     priority = db.Column(db.String(20), default="medium", nullable=False)
     due_date = db.Column(db.Date, nullable=True)
     parent_id = db.Column(db.Integer, db.ForeignKey("task.id"), nullable=True)
+    assignee_id = db.Column(db.Integer, db.ForeignKey("assignee.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     notes = db.relationship("Note", backref="task", cascade="all, delete-orphan", order_by="Note.updated_at.desc()")
     attachments = db.relationship("Attachment", backref="task", cascade="all, delete-orphan", order_by="Attachment.created_at.desc()")
     children = db.relationship("Task", backref=db.backref("parent", remote_side=[id]), order_by="Task.created_at", cascade="all, delete-orphan")
+    assignee = db.relationship("Assignee", backref=db.backref("tasks", order_by="Task.created_at.desc()"))
 
 
 class Note(db.Model):
@@ -278,6 +287,10 @@ def plain_text(value):
     return re.sub(r"<[^>]+>", " ", value or "")
 
 
+def normalize_assignee_name(name):
+    return (name or "").strip()
+
+
 def root_task_for(task):
     current = task
     while current and current.parent:
@@ -323,11 +336,17 @@ def migrate_schema():
     if "parent_id" not in task_columns:
         db.session.execute(db.text("ALTER TABLE task ADD COLUMN parent_id INTEGER REFERENCES task(id)"))
         db.session.commit()
+    if "assignee_id" not in task_columns:
+        db.session.execute(db.text("ALTER TABLE task ADD COLUMN assignee_id INTEGER REFERENCES assignee(id)"))
+        db.session.commit()
+    if not inspector.has_table("assignee"):
+        Assignee.__table__.create(bind=db.engine)
+        db.session.commit()
 
 
 @app.context_processor
 def inject_counts():
-    return {"pending_count": Task.query.filter(Task.status != "done").count() if db.engine else 0, "oss_enabled": storage.enabled, "now": datetime.utcnow(), "timedelta": timedelta}
+    return {"pending_count": Task.query.filter(Task.status != "done").count() if db.engine else 0, "oss_enabled": storage.enabled, "now": datetime.utcnow(), "timedelta": timedelta, "root_task_for": root_task_for}
 
 
 @app.route("/")
@@ -403,6 +422,94 @@ def index():
                            total_pending=total_pending, total_done=total_done,
                            shown_pending=shown_pending, shown_finished=shown_finished,
                            today_items=today_items, today_label=today.strftime("%m月%d日"))
+
+
+@app.get("/tasks/list")
+def task_list():
+    assignee_id = request.args.get("assignee_id", type=int)
+    query = Task.query
+    if assignee_id:
+        query = query.filter_by(assignee_id=assignee_id)
+    tasks = query.order_by(Task.due_date.is_(None), Task.due_date.asc(), Task.created_at.desc()).all()
+    return render_template("task_list.html", tasks=tasks, assignees=Assignee.query.order_by(Assignee.name).all(), current_assignee_id=assignee_id)
+
+
+@app.get("/tasks/board")
+def task_board():
+    tasks = Task.query.order_by(Task.created_at.desc()).all()
+    columns = {"todo": [], "doing": [], "done": []}
+    for task in tasks:
+        columns.setdefault(task.status, []).append(task)
+    return render_template("task_board.html", columns=columns, assignees=Assignee.query.order_by(Assignee.name).all())
+
+
+@app.get("/assignees")
+def task_assignees():
+    assignees = Assignee.query.order_by(Assignee.name).all()
+    return render_template("task_assignees.html", assignees=assignees)
+
+
+@app.post("/assignees")
+def create_assignee():
+    name = normalize_assignee_name(request.form.get("name"))
+    if not name:
+        flash("请输入经办人名称", "error")
+        return redirect(request.referrer or url_for("task_assignees"))
+    assignee = Assignee.query.filter_by(name=name).first()
+    if not assignee:
+        assignee = Assignee(name=name)
+        db.session.add(assignee)
+        db.session.commit()
+        sync_database()
+    flash("经办人已保存", "success")
+    return redirect(request.referrer or url_for("task_assignees"))
+
+
+@app.post("/tasks/<int:task_id>/assign")
+def set_task_assignee(task_id):
+    task = db.get_or_404(Task, task_id)
+    assignee_id = request.form.get("assignee_id", type=int)
+    new_name = normalize_assignee_name(request.form.get("new_assignee_name"))
+    if assignee_id:
+        task.assignee_id = assignee_id
+    elif new_name:
+        assignee = Assignee.query.filter_by(name=new_name).first()
+        if not assignee:
+            assignee = Assignee(name=new_name)
+            db.session.add(assignee)
+            db.session.commit()
+        task.assignee_id = assignee.id
+    else:
+        task.assignee_id = None
+    db.session.commit()
+    sync_database()
+    flash("已更新经办人", "success")
+    return redirect(request.referrer or url_for("task_detail", task_id=task.id))
+
+
+@app.get("/tasks/export")
+def export_tasks_for_assignee():
+    assignee_id = request.args.get("assignee_id", type=int)
+    if not assignee_id:
+        flash("请选择要导出的经办人", "error")
+        return redirect(url_for("task_assignees"))
+    assignee = db.get_or_404(Assignee, assignee_id)
+    tasks = Task.query.filter_by(assignee_id=assignee_id).order_by(Task.due_date.is_(None), Task.due_date.asc(), Task.created_at.desc()).all()
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["任务名称", "所属主任务", "状态", "优先级", "截止日期", "经办人", "描述"])
+    for task in tasks:
+        writer.writerow([
+            task.title,
+            root_task_for(task).title if root_task_for(task) else "",
+            {'todo': '待处理', 'doing': '进行中', 'done': '已完成'}.get(task.status, task.status),
+            {'high': '高', 'medium': '中', 'low': '低'}.get(task.priority, task.priority),
+            task.due_date.strftime('%Y-%m-%d') if task.due_date else '',
+            assignee.name,
+            plain_text(task.description).strip(),
+        ])
+    data = output.getvalue().encode('utf-8-sig')
+    return send_file(BytesIO(data), as_attachment=True, download_name=f"{assignee.name}任务清单.csv", mimetype="text/csv; charset=utf-8-sig")
 
 
 @app.get("/api/reminders")
@@ -518,7 +625,7 @@ def new_task():
 @app.route("/tasks/<int:task_id>")
 def task_detail(task_id):
     task = db.get_or_404(Task, task_id)
-    return render_template("task_detail.html", task=task, available_files=Attachment.query.order_by(Attachment.original_name).all())
+    return render_template("task_detail.html", task=task, assignees=Assignee.query.order_by(Assignee.name).all(), available_files=Attachment.query.order_by(Attachment.original_name).all())
 
 
 @app.route("/tasks/<int:task_id>/edit", methods=["GET", "POST"])
@@ -932,6 +1039,8 @@ def mindmap_tree_data():
             "status": task.status,
             "priority": task.priority,
             "due_date": task.due_date.strftime("%Y-%m-%d") if task.due_date else "",
+            "assignee_id": task.assignee_id,
+            "assignee_name": task.assignee.name if task.assignee else "",
             "notes": [{"id": note.id, "title": note.title} for note in task.notes],
             "attachments": [{"id": att.id, "name": att.original_name} for att in task.attachments],
             "children": [task_node(child) for child in task.children],
@@ -957,7 +1066,8 @@ def mindmap():
     tree = mindmap_tree_data()
     notes = Note.query.order_by(Note.updated_at.desc()).all()
     attachments = Attachment.query.order_by(Attachment.created_at.desc()).all()
-    return render_template("mindmap.html", tree=tree, notes=notes, attachments=attachments)
+    assignees = Assignee.query.order_by(Assignee.name).all()
+    return render_template("mindmap.html", tree=tree, notes=notes, attachments=attachments, assignees=assignees)
 
 
 @app.get("/mindmap/data")
@@ -1053,6 +1163,21 @@ def mindmap_update_task(task_id):
     task.status = payload.get("status") or "todo"
     task.priority = payload.get("priority") or "medium"
     task.due_date = parse_date(payload.get("due_date"))
+    assignee_id = payload.get("assignee_id")
+    raw_assignee = payload.get("new_assignee_name")
+    if assignee_id not in (None, "", "0"):
+        task.assignee_id = int(assignee_id)
+    elif raw_assignee:
+        name = normalize_assignee_name(raw_assignee)
+        if name:
+            assignee = Assignee.query.filter_by(name=name).first()
+            if not assignee:
+                assignee = Assignee(name=name)
+                db.session.add(assignee)
+                db.session.commit()
+            task.assignee_id = assignee.id
+    elif payload.get("assignee_id") in (None, "", "0"):
+        task.assignee_id = None
     db.session.commit()
     sync_database()
     if request.is_json:

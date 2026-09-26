@@ -15,7 +15,10 @@
     <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">W</span><span>工作簿</span></a>
     <nav>
       <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}"><span>⌂</span>工作台</a>
-      <a class="nav-link {% if request.endpoint in ['mindmap', 'new_task', 'edit_task', 'task_detail'] %}active{% endif %}" href="{{ url_for('mindmap') }}"><span>◈</span>任务 <b>{{ pending_count }}</b></a>
+      <a class="nav-link {% if request.endpoint in ['mindmap', 'new_task', 'edit_task', 'task_detail', 'task_list', 'task_board', 'task_assignees'] %}active{% endif %}" href="{{ url_for('mindmap') }}"><span>◈</span>任务 <b>{{ pending_count }}</b></a>
+      <a class="nav-link {% if request.endpoint in ['task_list', 'task_board'] %}active{% endif %}" href="{{ url_for('task_list') }}"><span>☑</span>清单</a>
+      <a class="nav-link {% if request.endpoint == 'task_board' %}active{% endif %}" href="{{ url_for('task_board') }}"><span>▦</span>看板</a>
+      <a class="nav-link {% if request.endpoint == 'task_assignees' %}active{% endif %}" href="{{ url_for('task_assignees') }}"><span>◎</span>经办人</a>
       <a class="nav-link {% if request.endpoint in ['new_note', 'edit_note', 'note_detail'] %}active{% endif %}" href="{{ url_for('index') }}#notes"><span>▤</span>笔记</a>
       <a class="nav-link {% if request.endpoint in ['file_manager', 'create_folder', 'move_file', 'delete_file'] %}active{% endif %}" href="{{ url_for('file_manager') }}"><span>⌑</span>文件</a>
       <a class="nav-link {% if request.endpoint in ['schedule', 'delete_schedule'] %}active{% endif %}" href="{{ url_for('schedule') }}"><span>◷</span>日程</a>
