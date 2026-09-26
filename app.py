@@ -734,9 +734,9 @@ def export_tasks_for_assignee():
 
 @app.get("/api/reminders")
 def api_reminders():
-    """到点日程提醒：返回最近 5 分钟内开始且未完成的日程，前端轮询弹窗提醒。"""
+    """返回已到点且未完成的日程，前端轮询后弹窗提醒，避免遗漏。"""
     now = datetime.now()
-    window_start = now - timedelta(minutes=5)
+    window_start = now - timedelta(minutes=30)
     items = (
         Schedule.query
         .filter(Schedule.completed.is_(False), Schedule.start_at <= now, Schedule.start_at >= window_start)

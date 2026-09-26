@@ -24,7 +24,10 @@
         </div>
       </div>
       <div class="task-tree-actions">
-        <button class="button ghost small" type="button" data-toggle-task-edit="{{ task.id }}">编辑</button>
+        {% if task._tree_children %}
+          <button class="button ghost small task-tree-toggle" type="button" data-tree-toggle="{{ task.id }}">收起</button>
+        {% endif %}
+        <button class="button ghost small task-tree-toggle" type="button" data-toggle-task-edit="{{ task.id }}">编辑</button>
       </div>
     </div>
 
@@ -103,6 +106,10 @@
       <a class="pill {% if current_assignee_id == assignee.id %}selected{% endif %}" href="{{ url_for('task_list', assignee_id=assignee.id) }}">{{ assignee.name }}</a>
     {% endfor %}
   </div>
+  <div class="tree-toggle-bar">
+    <button type="button" class="button ghost small" data-tree-expand-all>全部展开</button>
+    <button type="button" class="button ghost small" data-tree-collapse-all>全部收起</button>
+  </div>
 </section>
 
 <div class="task-list-panel">
@@ -118,13 +125,61 @@
 
 {% block scripts %}
 <script>
+  function setTreeExpanded(taskId, expanded) {
+    var item = document.querySelector('[data-task-id="' + taskId + '"]');
+    if (!item) return;
+    item.setAttribute('data-expanded', expanded ? 'true' : 'false');
+    var children = item.querySelector(':scope > .task-tree-children');
+    if (children) children.hidden = !expanded;
+    var button = item.querySelector('[data-tree-toggle="' + taskId + '"]');
+    if (button) button.textContent = expanded ? '收起' : '展开';
+  }
+
   document.addEventListener('click', function (event) {
-    var toggle = event.target.closest('[data-toggle-task-edit]');
-    if (!toggle) return;
-    var id = 'edit-task-' + toggle.getAttribute('data-toggle-task-edit');
-    var form = document.getElementById(id);
-    if (!form) return;
-    form.hidden = !form.hidden;
+    var editToggle = event.target.closest('[data-toggle-task-edit]');
+    if (editToggle) {
+      var id = 'edit-task-' + editToggle.getAttribute('data-toggle-task-edit');
+      var form = document.getElementById(id);
+      if (form) form.hidden = !form.hidden;
+      return;
+    }
+
+    var treeToggle = event.target.closest('[data-tree-toggle]');
+    if (treeToggle) {
+      var taskId = treeToggle.getAttribute('data-tree-toggle');
+      var item = document.querySelector('[data-task-id="' + taskId + '"]');
+      if (!item) return;
+      var expanded = item.getAttribute('data-expanded') !== 'false';
+      setTreeExpanded(taskId, !expanded);
+      return;
+    }
+
+    var expandAll = event.target.closest('[data-tree-expand-all]');
+    if (expandAll) {
+      document.querySelectorAll('.task-tree-item[data-task-id]').forEach(function (node) {
+        setTreeExpanded(node.getAttribute('data-task-id'), true);
+      });
+      return;
+    }
+
+    var collapseAll = event.target.closest('[data-tree-collapse-all]');
+    if (collapseAll) {
+      document.querySelectorAll('.task-tree-item[data-task-id]').forEach(function (node) {
+        setTreeExpanded(node.getAttribute('data-task-id'), false);
+      });
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.task-tree-item[data-task-id]').forEach(function (node) {
+      var taskId = node.getAttribute('data-task-id');
+      if (node.querySelector(':scope > .task-tree-children')) {
+        node.setAttribute('data-expanded', 'true');
+        node.querySelector(':scope > .task-tree-children').hidden = false;
+      }
+      var button = node.querySelector('[data-tree-toggle="' + taskId + '"]');
+      if (button) button.textContent = '收起';
+    });
   });
 </script>
 {% endblock %}
