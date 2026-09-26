@@ -546,67 +546,45 @@ def finance_cashflow():
     end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
     entries = CashflowEntry.query.filter(CashflowEntry.entry_date >= start, CashflowEntry.entry_date < end).order_by(CashflowEntry.entry_date.desc(), CashflowEntry.created_at.desc()).all()
 
-    flow_totals = {"asset": {"income": 0.0, "expense": 0.0}, "liability": {"income": 0.0, "expense": 0.0}, "daily": {"income": 0.0, "expense": 0.0}}
-    for item in entries:
-        flow_type = item.flow_type or "daily"
-        if flow_type not in flow_totals:
-            flow_type = "daily"
-        bucket = flow_totals[flow_type]
-        if item.kind == "income":
-            bucket["income"] += item.amount
-        else:
-            bucket["expense"] += item.amount
-
-    active_income_entries = [item for item in entries if item.kind == "income" and item.flow_type == "daily"]
-    passive_income_entries = [item for item in entries if item.kind == "income" and item.flow_type == "asset"]
+    income_entries = [item for item in entries if item.kind == "income" and item.flow_type in {"daily", "asset"}]
     expense_entries = [item for item in entries if item.kind == "expense" and item.flow_type in {"daily", "liability"}]
     asset_entries = [item for item in entries if item.flow_type == "asset"]
     liability_entries = [item for item in entries if item.flow_type == "liability"]
+    cash_entries = [item for item in entries if item.flow_type == "cash"]
 
-    asset_cashflow = flow_totals["asset"]["income"] - flow_totals["asset"]["expense"]
-    liability_cashflow = flow_totals["liability"]["income"] - flow_totals["liability"]["expense"]
-    daily_cashflow = flow_totals["daily"]["income"] - flow_totals["daily"]["expense"]
-    income = sum(item.amount for item in entries if item.kind == "income")
-    expense = sum(item.amount for item in entries if item.kind == "expense")
-    net = income - expense
-    passive_income = sum(item.amount for item in passive_income_entries)
-    active_income = sum(item.amount for item in active_income_entries)
-    annual_expense = max(float(expense * 12), 1.0)
-    freedom_ratio = min(100.0, max(0.0, (passive_income * 12 / annual_expense) * 100.0))
-    target_asset = max(3000.0, float(passive_income * 12) * 1.5)
-    liability_target = max(1000.0, float(expense * 6))
-    debt_control = max(0.0, max(0.0, liability_cashflow * -1) / max(liability_target, 1.0) * 100.0)
-    asset_progress = min(100.0, max(0.0, (max(0.0, asset_cashflow) / max(target_asset, 1.0)) * 100.0))
-    leaderboard = [
-        {"name": "资产目标", "value": max(0.0, asset_cashflow), "goal": target_asset, "progress": asset_progress},
-        {"name": "负债控制", "value": max(0.0, liability_cashflow * -1), "goal": liability_target, "progress": debt_control},
-        {"name": "自由度", "value": freedom_ratio, "goal": 100.0, "progress": freedom_ratio},
-    ]
-    leaderboard = sorted(leaderboard, key=lambda item: item["progress"], reverse=True)
+    active_income = sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "daily")
+    passive_income = sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "asset")
+    total_expense = sum(item.amount for item in entries if item.kind == "expense")
+    cash_on_hand = sum(item.amount for item in cash_entries if item.kind == "income") - sum(item.amount for item in cash_entries if item.kind == "expense")
+    total_income = active_income + passive_income
+    asset_cashflow = sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "asset") - sum(item.amount for item in entries if item.kind == "expense" and item.flow_type == "asset")
+    liability_cashflow = sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "liability") - sum(item.amount for item in entries if item.kind == "expense" and item.flow_type == "liability")
+    daily_cashflow = sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "daily") - sum(item.amount for item in entries if item.kind == "expense" and item.flow_type == "daily")
+    net_cashflow = total_income - total_expense
+    freedom_goal_met = passive_income > total_expense
+    freedom_ratio = min(100.0, max(0.0, (passive_income / total_expense) * 100.0)) if total_expense else 0.0
+
     return render_template(
         "finance_cashflow.html",
         entries=entries,
         month=month,
-        cash_balance=net,
-        monthly_inflow=income,
-        monthly_outflow=expense,
-        active_income=active_income,
-        passive_income=passive_income,
-        asset_cashflow=asset_cashflow,
-        liability_cashflow=liability_cashflow,
-        daily_cashflow=daily_cashflow,
-        net_cashflow=net,
-        freedom_index=freedom_ratio,
-        asset_target=target_asset,
-        liability_target=liability_target,
-        asset_progress=asset_progress,
-        debt_control=debt_control,
-        leaderboard=leaderboard,
-        active_income_entries=active_income_entries,
-        passive_income_entries=passive_income_entries,
+        income_entries=income_entries,
         expense_entries=expense_entries,
         asset_entries=asset_entries,
         liability_entries=liability_entries,
+        cash_entries=cash_entries,
+        cash_on_hand=cash_on_hand,
+        active_income=active_income,
+        passive_income=passive_income,
+        total_income=total_income,
+        total_expense=total_expense,
+        monthly_outflow=total_expense,
+        asset_cashflow=asset_cashflow,
+        liability_cashflow=liability_cashflow,
+        daily_cashflow=daily_cashflow,
+        net_cashflow=net_cashflow,
+        freedom_index=freedom_ratio,
+        freedom_goal_met=freedom_goal_met,
         today=today,
         selected_date=selected_date,
     )
@@ -619,7 +597,7 @@ def finance_cashflow_add_entry():
     entry_date = request.form.get("entry_date") or date.today().isoformat()
     category = (request.form.get("category") or request.form.get("item") or "其他").strip() or "其他"
     flow_type = request.form.get("flow_type") or "daily"
-    if flow_type not in {"asset", "liability", "daily"}:
+    if flow_type not in {"daily", "asset", "liability", "cash"}:
         flow_type = "daily"
     kind = request.form.get("kind") or "expense"
     if kind in {"inflow", "outflow"}:
@@ -647,7 +625,7 @@ def finance_cashflow_edit_entry(entry_id):
     entry.entry_date = parse_date(request.form.get("entry_date") or entry.entry_date.isoformat()) or date.today()
     entry.category = (request.form.get("category") or entry.category).strip() or entry.category
     flow_type = request.form.get("flow_type") or entry.flow_type or "daily"
-    if flow_type not in {"asset", "liability", "daily"}:
+    if flow_type not in {"daily", "asset", "liability", "cash"}:
         flow_type = entry.flow_type or "daily"
     kind = request.form.get("kind") or entry.kind or "expense"
     if kind in {"inflow", "outflow"}:

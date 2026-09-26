@@ -96,34 +96,21 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         response = client.get('/finance/cashflow')
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn('资产现金流', html)
-        self.assertIn('负债现金流', html)
-        self.assertIn('财务自由度', html)
-        self.assertIn('净现金流', html)
-
-    def test_cashflow_page_exposes_target_and_leaderboard_sections(self):
-        client = app.test_client()
-        client.post('/finance/login', data={'module': 'cashflow', 'password': 'changeme-cashflow'}, follow_redirects=False)
-
-        response = client.get('/finance/cashflow')
-        self.assertEqual(response.status_code, 200)
-        html = response.get_data(as_text=True)
-        self.assertIn('资产目标', html)
-        self.assertIn('负债控制', html)
-        self.assertIn('自由度排行榜', html)
-
-    def test_cashflow_page_uses_rich_dad_game_sections(self):
-        client = app.test_client()
-        client.post('/finance/login', data={'module': 'cashflow', 'password': 'changeme-cashflow'}, follow_redirects=False)
-
-        response = client.get('/finance/cashflow')
-        self.assertEqual(response.status_code, 200)
-        html = response.get_data(as_text=True)
-        self.assertIn('工资收入', html)
+        self.assertIn('收入', html)
         self.assertIn('支出', html)
         self.assertIn('资产', html)
         self.assertIn('负债', html)
-        self.assertNotIn('被动收入', html)
+        self.assertIn('手头现金', html)
+        self.assertIn('被动收入', html)
+
+    def test_cashflow_page_targets_passive_income_above_total_expense(self):
+        client = app.test_client()
+        client.post('/finance/login', data={'module': 'cashflow', 'password': 'changeme-cashflow'}, follow_redirects=False)
+
+        response = client.get('/finance/cashflow')
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('目标：被动收入 > 所有支出', html)
 
 
 if __name__ == '__main__':
