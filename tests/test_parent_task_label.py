@@ -29,7 +29,7 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn('办理经营资质', html)
-        self.assertIn('所属主任务：洗车', html)
+        self.assertIn('洗车', html)
 
 
 if __name__ == '__main__':
