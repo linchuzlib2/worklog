@@ -2,7 +2,7 @@
 {% block title %}任务清单{% endblock %}
 {% block content %}
 {% macro render_task_node(task, depth=0) %}
-  <article class="task-tree-item {% if task.status == 'done' %}is-done{% endif %}" style="margin-left:{{ depth * 22 }}px;">
+  <article class="task-tree-item {% if task.status == 'done' %}is-done{% endif %}" data-task-id="{{ task.id }}" style="margin-left:{{ depth * 22 }}px;" data-expanded="true">
     <div class="task-tree-main">
       <div class="task-tree-left">
         <span class="task-tree-indent" style="width:{{ depth * 18 }}px"></span>
@@ -129,7 +129,7 @@
     var item = document.querySelector('[data-task-id="' + taskId + '"]');
     if (!item) return;
     item.setAttribute('data-expanded', expanded ? 'true' : 'false');
-    var children = item.querySelector(':scope > .task-tree-children');
+    var children = item.querySelector('.task-tree-children');
     if (children) children.hidden = !expanded;
     var button = item.querySelector('[data-tree-toggle="' + taskId + '"]');
     if (button) button.textContent = expanded ? '收起' : '展开';
@@ -173,9 +173,10 @@
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('.task-tree-item[data-task-id]').forEach(function (node) {
       var taskId = node.getAttribute('data-task-id');
-      if (node.querySelector(':scope > .task-tree-children')) {
+      var children = node.querySelector('.task-tree-children');
+      if (children) {
         node.setAttribute('data-expanded', 'true');
-        node.querySelector(':scope > .task-tree-children').hidden = false;
+        children.hidden = false;
       }
       var button = node.querySelector('[data-tree-toggle="' + taskId + '"]');
       if (button) button.textContent = '收起';

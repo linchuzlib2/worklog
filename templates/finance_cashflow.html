@@ -5,7 +5,7 @@
   <div>
     <p class="eyebrow">FAMILY CASHFLOW</p>
     <h1>家庭现金流</h1>
-    <p class="subtitle">根据现金流游戏思路，监控流入、流出和财务自由实现度。</p>
+    <p class="subtitle">按富爸爸现金流游戏的结构来管理资产、负债与日常现金流，追踪财务自由实现度。</p>
   </div>
   <div class="top-actions">
     <a class="button ghost" href="{{ url_for('finance_accounting') }}">个人记账</a>
@@ -16,43 +16,110 @@
   </div>
 </section>
 
-<div class="finance-summary">
-  <div class="finance-card"><span>现金余额</span><strong>¥{{ '%.2f'|format(cash_balance) }}</strong></div>
-  <div class="finance-card"><span>月流入</span><strong>¥{{ '%.2f'|format(monthly_inflow) }}</strong></div>
-  <div class="finance-card"><span>月流出</span><strong>¥{{ '%.2f'|format(monthly_outflow) }}</strong></div>
-  <div class="finance-card accent"><span>财务自由度</span><strong>{{ '%.1f'|format(freedom_index) }}%</strong></div>
+<div class="cashflow-board">
+  <div class="cashflow-card asset">
+    <span>资产现金流</span>
+    <strong>¥{{ '%.2f'|format(asset_cashflow) }}</strong>
+    <small>资产在创造钱，而不是你在工作</small>
+  </div>
+  <div class="cashflow-card liability">
+    <span>负债现金流</span>
+    <strong>¥{{ '%.2f'|format(liability_cashflow) }}</strong>
+    <small>贷款、负担与消费拖累现金流</small>
+  </div>
+  <div class="cashflow-card daily">
+    <span>净现金流</span>
+    <strong>¥{{ '%.2f'|format(net_cashflow) }}</strong>
+    <small>月度可支配现金</small>
+  </div>
+  <div class="cashflow-card freedom">
+    <span>财务自由度</span>
+    <strong>{{ '%.1f'|format(freedom_index) }}%</strong>
+    <small>资产流入 / 生活成本</small>
+  </div>
 </div>
 
-<div class="finance-layout">
+<div class="cashflow-board secondary">
+  <div class="cashflow-card insight">
+    <span>资产目标</span>
+    <strong>¥{{ '%.2f'|format([0.0, asset_cashflow]|max) }}</strong>
+    <small>让资产持续覆盖生活成本</small>
+  </div>
+  <div class="cashflow-card insight">
+    <span>负债控制</span>
+    <strong>¥{{ '%.2f'|format([-liability_cashflow, 0.0]|max) }}</strong>
+    <small>压低“钱流出去”的负担</small>
+  </div>
+  <div class="cashflow-card insight">
+    <span>日常现金流</span>
+    <strong>¥{{ '%.2f'|format(daily_cashflow) }}</strong>
+    <small>支撑家庭运营的流动性</small>
+  </div>
+</div>
+
+<div class="cashflow-layout">
+  <section class="panel-block cashflow-panel">
+    <h2>现金流结构</h2>
+    <div class="cashflow-structure">
+      <div class="cashflow-structure-row">
+        <span class="cashflow-pill asset">资产</span>
+        <strong>资产现金流</strong>
+        <span>¥{{ '%.2f'|format(asset_cashflow) }}</span>
+      </div>
+      <div class="cashflow-structure-row">
+        <span class="cashflow-pill liability">负债</span>
+        <strong>负债现金流</strong>
+        <span>¥{{ '%.2f'|format(liability_cashflow) }}</span>
+      </div>
+      <div class="cashflow-structure-row">
+        <span class="cashflow-pill daily">日常</span>
+        <strong>日常现金流</strong>
+        <span>¥{{ '%.2f'|format(daily_cashflow) }}</span>
+      </div>
+    </div>
+    <div class="cashflow-insight">
+      <p>富爸爸的核心不是“挣得更多”，而是让资产创造现金流，持续覆盖负债和生活成本。把每一笔流量都分到资产、负债、日常三类，才能看清财务自由的真实推进速度。</p>
+    </div>
+  </section>
+
   <section class="panel-block">
-    <h2>现金流记录</h2>
+    <h2>新增现金流记录</h2>
     <form method="post" action="{{ url_for('finance_cashflow_add_entry') }}" class="finance-form">
       <div class="finance-grid">
         <label>日期<input type="date" name="entry_date" value="{{ selected_date.isoformat() if selected_date else today.isoformat() }}" required></label>
-        <label>项目<input type="text" name="category" placeholder="例如：工资、房贷、投资回报" required></label>
+        <label>项目<input type="text" name="category" placeholder="例如：工资、租金、投资收益、房贷" required></label>
         <label>类型<select name="kind"><option value="income">流入</option><option value="expense">流出</option></select></label>
+        <label>流向<select name="flow_type">
+          <option value="asset">资产现金流</option>
+          <option value="liability">负债现金流</option>
+          <option value="daily">日常现金流</option>
+        </select></label>
         <label>金额<input type="number" name="amount" step="0.01" min="0.01" required></label>
       </div>
-      <label>备注<textarea name="note" rows="3" placeholder="说明来源或用途"></textarea></label>
+      <label>备注<textarea name="note" rows="3" placeholder="说明来源、用途或资产类别"></textarea></label>
       <button class="button primary" type="submit">保存现金流</button>
     </form>
   </section>
-
-  <section class="panel-block">
-    <h2>最近记录</h2>
-    <div class="entry-list">
-      {% for item in entries %}
-      <div class="entry-row {% if item.kind == 'income' %}income{% else %}expense{% endif %}">
-        <div>
-          <strong>{{ item.category }}</strong>
-          <small>{{ item.entry_date.strftime('%Y-%m-%d') }}{% if item.note %} · {{ item.note }}{% endif %}</small>
-        </div>
-        <span>{{ '+' if item.kind == 'income' else '-' }}¥{{ '%.2f'|format(item.amount) }}</span>
-      </div>
-      {% else %}
-      <div class="empty">暂无现金流记录。</div>
-      {% endfor %}
-    </div>
-  </section>
 </div>
+
+<section class="panel-block cashflow-history">
+  <h2>最近记录</h2>
+  <div class="entry-list">
+    {% for item in entries %}
+    <div class="entry-row {% if item.kind == 'income' %}income{% else %}expense{% endif %}">
+      <div>
+        <strong>{{ item.category }}</strong>
+        <small>
+          {{ item.entry_date.strftime('%Y-%m-%d') }}
+          {% if item.flow_type == 'asset' %} · 资产现金流{% elif item.flow_type == 'liability' %} · 负债现金流{% else %} · 日常现金流{% endif %}
+          {% if item.note %} · {{ item.note }}{% endif %}
+        </small>
+      </div>
+      <span>{{ '+' if item.kind == 'income' else '-' }}¥{{ '%.2f'|format(item.amount) }}</span>
+    </div>
+    {% else %}
+    <div class="empty">暂无现金流记录。</div>
+    {% endfor %}
+  </div>
+</section>
 {% endblock %}

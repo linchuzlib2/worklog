@@ -119,6 +119,7 @@ class CashflowEntry(db.Model):
     entry_date = db.Column(db.Date, nullable=False)
     category = db.Column(db.String(120), nullable=False)
     kind = db.Column(db.String(20), nullable=False)
+    flow_type = db.Column(db.String(20), nullable=False, default="asset")
     amount = db.Column(db.Float, nullable=False, default=0.0)
     note = db.Column(db.Text, default="")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -424,6 +425,10 @@ def migrate_schema():
     if "assignee_id" not in task_columns:
         db.session.execute(db.text("ALTER TABLE task ADD COLUMN assignee_id INTEGER REFERENCES assignee(id)"))
         db.session.commit()
+    cashflow_columns = {column["name"] for column in inspector.get_columns("cashflow_entry")}
+    if "flow_type" not in cashflow_columns:
+        db.session.execute(db.text("ALTER TABLE cashflow_entry ADD COLUMN flow_type VARCHAR(20) NOT NULL DEFAULT 'asset'"))
+        db.session.commit()
     if not inspector.has_table("assignee"):
         Assignee.__table__.create(bind=db.engine)
         db.session.commit()
@@ -516,12 +521,27 @@ def finance_cashflow():
     start = selected_date.replace(day=1)
     end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
     entries = CashflowEntry.query.filter(CashflowEntry.entry_date >= start, CashflowEntry.entry_date < end).order_by(CashflowEntry.entry_date.desc(), CashflowEntry.created_at.desc()).all()
+
+    flow_totals = {"asset": {"income": 0.0, "expense": 0.0}, "liability": {"income": 0.0, "expense": 0.0}, "daily": {"income": 0.0, "expense": 0.0}}
+    for item in entries:
+        flow_type = item.flow_type or "daily"
+        if flow_type not in flow_totals:
+            flow_type = "daily"
+        bucket = flow_totals[flow_type]
+        if item.kind == "income":
+            bucket["income"] += item.amount
+        else:
+            bucket["expense"] += item.amount
+
+    asset_cashflow = flow_totals["asset"]["income"] - flow_totals["asset"]["expense"]
+    liability_cashflow = flow_totals["liability"]["income"] - flow_totals["liability"]["expense"]
+    daily_cashflow = flow_totals["daily"]["income"] - flow_totals["daily"]["expense"]
     income = sum(item.amount for item in entries if item.kind == "income")
     expense = sum(item.amount for item in entries if item.kind == "expense")
     net = income - expense
-    passive_income = sum(item.amount for item in entries if item.category in {"被动收入", "投资收益", "房租", "利息"} and item.kind == "income")
+    passive_income = sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "asset")
     annual_expense = max(float(expense * 12), 1.0)
-    freedom_ratio = min(100, max(0, (passive_income * 12 / annual_expense) * 100))
+    freedom_ratio = min(100.0, max(0.0, (passive_income * 12 / annual_expense) * 100.0))
     return render_template(
         "finance_cashflow.html",
         entries=entries,
@@ -529,6 +549,10 @@ def finance_cashflow():
         cash_balance=net,
         monthly_inflow=income,
         monthly_outflow=expense,
+        asset_cashflow=asset_cashflow,
+        liability_cashflow=liability_cashflow,
+        daily_cashflow=daily_cashflow,
+        net_cashflow=net,
         freedom_index=freedom_ratio,
         today=today,
         selected_date=selected_date,
@@ -541,6 +565,9 @@ def finance_cashflow_add_entry():
         return redirect(url_for("finance_login", module="cashflow"))
     entry_date = request.form.get("entry_date") or date.today().isoformat()
     category = (request.form.get("category") or request.form.get("item") or "其他").strip() or "其他"
+    flow_type = request.form.get("flow_type") or "daily"
+    if flow_type not in {"asset", "liability", "daily"}:
+        flow_type = "daily"
     kind = request.form.get("kind") or "expense"
     if kind in {"inflow", "outflow"}:
         kind = "income" if kind == "inflow" else "expense"
@@ -551,7 +578,7 @@ def finance_cashflow_add_entry():
     if amount <= 0:
         flash("金额必须大于 0", "error")
         return redirect(url_for("finance_cashflow"))
-    db.session.add(CashflowEntry(entry_date=parse_date(entry_date), category=category, kind=kind, amount=amount, note=note))
+    db.session.add(CashflowEntry(entry_date=parse_date(entry_date), category=category, kind=kind, flow_type=flow_type, amount=amount, note=note))
     db.session.commit()
     sync_database()
     flash("现金流记录已保存", "success")

@@ -70,6 +70,19 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         response = client.get('/finance/cashflow')
         self.assertIn(response.status_code, (302, 401))
 
+    def test_cashflow_page_exposes_rich_dad_game_metrics(self):
+        client = app.test_client()
+        login_response = client.post('/finance/login', data={'module': 'cashflow', 'password': 'changeme-cashflow'}, follow_redirects=False)
+        self.assertIn(login_response.status_code, (200, 302))
+
+        response = client.get('/finance/cashflow')
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('资产现金流', html)
+        self.assertIn('负债现金流', html)
+        self.assertIn('财务自由度', html)
+        self.assertIn('净现金流', html)
+
 
 if __name__ == '__main__':
     unittest.main()
