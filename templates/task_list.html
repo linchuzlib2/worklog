@@ -128,9 +128,16 @@
   function setTreeExpanded(taskId, expanded) {
     var item = document.querySelector('.task-tree-item[data-task-id="' + taskId + '"]');
     if (!item) return;
+
     item.setAttribute('data-expanded', expanded ? 'true' : 'false');
-    var children = item.querySelector('.task-tree-children');
-    if (children) children.hidden = !expanded;
+    item.classList.toggle('is-collapsed', !expanded);
+
+    var children = item.querySelector(':scope > .task-tree-children');
+    if (children) {
+      children.hidden = !expanded;
+      children.style.display = expanded ? 'flex' : 'none';
+    }
+
     var button = item.querySelector('[data-tree-toggle]');
     if (button) {
       button.textContent = expanded ? '收起' : '展开';
@@ -231,22 +238,19 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('.task-tree-item[data-task-id]').forEach(function (node) {
-      var taskId = node.getAttribute('data-task-id');
-      var children = node.querySelector('.task-tree-children');
+      var children = node.querySelector(':scope > .task-tree-children');
+      var expanded = node.getAttribute('data-expanded') !== 'false';
+      node.setAttribute('data-expanded', expanded ? 'true' : 'false');
+      node.classList.toggle('is-collapsed', !expanded);
       if (children) {
-        node.setAttribute('data-expanded', 'true');
-        children.hidden = false;
+        children.hidden = !expanded;
+        children.style.display = expanded ? 'flex' : 'none';
       }
+
       var button = node.querySelector('[data-tree-toggle]');
       if (button) {
-        button.textContent = '收起';
-        button.setAttribute('aria-expanded', 'true');
-      }
-      if (node.querySelector('.task-tree-children')) {
-        var labelButton = node.querySelector('[data-tree-toggle]');
-        if (labelButton) {
-          labelButton.setAttribute('data-tree-toggle', taskId);
-        }
+        button.textContent = expanded ? '收起' : '展开';
+        button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
       }
     });
   });

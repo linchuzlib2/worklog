@@ -607,7 +607,8 @@ def finance_cashflow_add_entry():
     if amount <= 0:
         flash("金额必须大于 0", "error")
         return redirect(url_for("finance_cashflow"))
-    db.session.add(CashflowEntry(entry_date=parse_date(entry_date), category=category, kind=kind, flow_type=flow_type, amount=amount, note=note))
+    today_value = parse_date(entry_date) or date.today()
+    db.session.add(CashflowEntry(entry_date=today_value, category=category, kind=kind, flow_type=flow_type, amount=amount, note=note))
     db.session.commit()
     sync_database()
     flash("现金流记录已保存", "success")
@@ -619,7 +620,7 @@ def finance_cashflow_edit_entry(entry_id):
     if not require_finance_auth("cashflow"):
         return redirect(url_for("finance_login", module="cashflow"))
     entry = db.get_or_404(CashflowEntry, entry_id)
-    entry.entry_date = parse_date(request.form.get("entry_date") or entry.entry_date.isoformat())
+    entry.entry_date = parse_date(request.form.get("entry_date") or entry.entry_date.isoformat()) or date.today()
     entry.category = (request.form.get("category") or entry.category).strip() or entry.category
     flow_type = request.form.get("flow_type") or entry.flow_type or "daily"
     if flow_type not in {"asset", "liability", "daily"}:

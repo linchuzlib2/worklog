@@ -94,18 +94,18 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         self.assertIn('负债控制', html)
         self.assertIn('自由度排行榜', html)
 
-    def test_cashflow_page_uses_four_core_game_sections(self):
+    def test_cashflow_page_uses_rich_dad_game_sections(self):
         client = app.test_client()
         client.post('/finance/login', data={'module': 'cashflow', 'password': 'changeme-cashflow'}, follow_redirects=False)
 
         response = client.get('/finance/cashflow')
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn('主动收入', html)
-        self.assertIn('被动收入', html)
+        self.assertIn('工资收入', html)
         self.assertIn('支出', html)
         self.assertIn('资产', html)
         self.assertIn('负债', html)
+        self.assertNotIn('被动收入', html)
 
 
 if __name__ == '__main__':
