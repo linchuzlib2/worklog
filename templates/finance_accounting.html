@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block title %}个人记账{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div>
+    <p class="eyebrow">PERSONAL ACCOUNTING</p>
+    <h1>个人记账</h1>
+    <p class="subtitle">记录每日收支，管理每月和每年的花销与结余。</p>
+  </div>
+  <div class="top-actions">
+    <a class="button ghost" href="{{ url_for('finance_cashflow') }}">家庭现金流</a>
+    <form method="post" action="{{ url_for('finance_logout') }}">
+      <input type="hidden" name="module" value="accounting">
+      <button class="button danger" type="submit">退出登录</button>
+    </form>
+  </div>
+</section>
+
+<div class="finance-summary">
+  <div class="finance-card"><span>本月收入</span><strong>¥{{ '%.2f'|format(income) }}</strong></div>
+  <div class="finance-card"><span>本月支出</span><strong>¥{{ '%.2f'|format(expense) }}</strong></div>
+  <div class="finance-card accent"><span>结余</span><strong>¥{{ '%.2f'|format(balance) }}</strong></div>
+</div>
+
+<div class="finance-layout">
+  <section class="panel-block">
+    <h2>新增记账</h2>
+    <form method="post" action="{{ url_for('finance_accounting_add_entry') }}" class="finance-form">
+      <div class="finance-grid">
+        <label>日期<input type="date" name="entry_date" value="{{ selected_date.isoformat() if selected_date else today.isoformat() }}" required></label>
+        <label>类别<input type="text" name="category" placeholder="例如：餐饮、交通、房租" required></label>
+        <label>类型<select name="kind"><option value="expense">支出</option><option value="income">收入</option></select></label>
+        <label>金额<input type="number" name="amount" step="0.01" min="0.01" required></label>
+      </div>
+      <label>备注<textarea name="note" rows="3" placeholder="说明用途或来源"></textarea></label>
+      <button class="button primary" type="submit">保存到记账本</button>
+    </form>
+  </section>
+
+  <section class="panel-block">
+    <h2>当月账单</h2>
+    <div class="entry-list">
+      {% for entry in entries %}
+      <div class="entry-row {% if entry.kind == 'income' %}income{% else %}expense{% endif %}">
+        <div>
+          <strong>{{ entry.category }}</strong>
+          <small>{{ entry.entry_date.strftime('%Y-%m-%d') }}{% if entry.note %} · {{ entry.note }}{% endif %}</small>
+        </div>
+        <span>{{ '+' if entry.kind == 'income' else '-' }}¥{{ '%.2f'|format(entry.amount) }}</span>
+      </div>
+      {% else %}
+      <div class="empty">本月暂无记账记录。</div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}家庭现金流{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div>
+    <p class="eyebrow">FAMILY CASHFLOW</p>
+    <h1>家庭现金流</h1>
+    <p class="subtitle">根据现金流游戏思路，监控流入、流出和财务自由实现度。</p>
+  </div>
+  <div class="top-actions">
+    <a class="button ghost" href="{{ url_for('finance_accounting') }}">个人记账</a>
+    <form method="post" action="{{ url_for('finance_logout') }}">
+      <input type="hidden" name="module" value="cashflow">
+      <button class="button danger" type="submit">退出登录</button>
+    </form>
+  </div>
+</section>
+
+<div class="finance-summary">
+  <div class="finance-card"><span>现金余额</span><strong>¥{{ '%.2f'|format(cash_balance) }}</strong></div>
+  <div class="finance-card"><span>月流入</span><strong>¥{{ '%.2f'|format(monthly_inflow) }}</strong></div>
+  <div class="finance-card"><span>月流出</span><strong>¥{{ '%.2f'|format(monthly_outflow) }}</strong></div>
+  <div class="finance-card accent"><span>财务自由度</span><strong>{{ '%.1f'|format(freedom_index) }}%</strong></div>
+</div>
+
+<div class="finance-layout">
+  <section class="panel-block">
+    <h2>现金流记录</h2>
+    <form method="post" action="{{ url_for('finance_cashflow_add_entry') }}" class="finance-form">
+      <div class="finance-grid">
+        <label>日期<input type="date" name="entry_date" value="{{ selected_date.isoformat() if selected_date else today.isoformat() }}" required></label>
+        <label>项目<input type="text" name="category" placeholder="例如：工资、房贷、投资回报" required></label>
+        <label>类型<select name="kind"><option value="income">流入</option><option value="expense">流出</option></select></label>
+        <label>金额<input type="number" name="amount" step="0.01" min="0.01" required></label>
+      </div>
+      <label>备注<textarea name="note" rows="3" placeholder="说明来源或用途"></textarea></label>
+      <button class="button primary" type="submit">保存现金流</button>
+    </form>
+  </section>
+
+  <section class="panel-block">
+    <h2>最近记录</h2>
+    <div class="entry-list">
+      {% for item in entries %}
+      <div class="entry-row {% if item.kind == 'income' %}income{% else %}expense{% endif %}">
+        <div>
+          <strong>{{ item.category }}</strong>
+          <small>{{ item.entry_date.strftime('%Y-%m-%d') }}{% if item.note %} · {{ item.note }}{% endif %}</small>
+        </div>
+        <span>{{ '+' if item.kind == 'income' else '-' }}¥{{ '%.2f'|format(item.amount) }}</span>
+      </div>
+      {% else %}
+      <div class="empty">暂无现金流记录。</div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

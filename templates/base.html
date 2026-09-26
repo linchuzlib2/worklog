@@ -24,6 +24,7 @@
       <a class="nav-link {% if request.endpoint in ['schedule', 'delete_schedule'] %}active{% endif %}" href="{{ url_for('schedule') }}"><span>◷</span>日程</a>
       <a class="nav-link {% if request.endpoint == 'global_search' %}active{% endif %}" href="{{ url_for('global_search') }}"><span>⌕</span>搜索</a>
       <a class="nav-link {% if request.endpoint == 'knowledge' %}active{% endif %}" href="{{ url_for('knowledge') }}"><span>◈</span>知识库</a>
+      <a class="nav-link {% if request.endpoint in ['finance_accounting', 'finance_cashflow', 'finance_login'] %}active{% endif %}" href="{{ url_for('finance_accounting') }}"><span>￥</span>财务</a>
     </nav>
     <div class="sidebar-bottom"><div class="storage-status"><i class="dot {% if oss_enabled %}online{% endif %}"></i>{{ 'OSS 存储已连接' if oss_enabled else '等待配置 OSS' }}</div><small>Daily work log</small></div>
   </aside>

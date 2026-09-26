@@ -1,4 +1,5 @@
 import csv
+import hmac
 import json
 import os
 import re
@@ -14,11 +15,11 @@ from botocore.exceptions import BotoCoreError, ClientError
 from botocore.config import Config
 from docx import Document
 from dotenv import load_dotenv
-from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 
 import ai
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func, inspect, or_
+from sqlalchemy import event, func, inspect, or_
 
 load_dotenv()
 
@@ -101,6 +102,26 @@ class Schedule(db.Model):
     completed = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     task = db.relationship("Task", backref=db.backref("schedules", order_by="Schedule.start_at"))
+
+
+class FinanceEntry(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    entry_date = db.Column(db.Date, nullable=False)
+    category = db.Column(db.String(120), nullable=False)
+    kind = db.Column(db.String(20), nullable=False)
+    amount = db.Column(db.Float, nullable=False, default=0.0)
+    note = db.Column(db.Text, default="")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class CashflowEntry(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    entry_date = db.Column(db.Date, nullable=False)
+    category = db.Column(db.String(120), nullable=False)
+    kind = db.Column(db.String(20), nullable=False)
+    amount = db.Column(db.Float, nullable=False, default=0.0)
+    note = db.Column(db.Text, default="")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
 class KnowledgeDoc(db.Model):
@@ -291,6 +312,70 @@ def normalize_assignee_name(name):
     return (name or "").strip()
 
 
+def finance_password_for(module_name):
+    if module_name == "accounting":
+        return os.getenv("ACCOUNTING_PASSWORD", "changeme-accounting")
+    if module_name == "cashflow":
+        return os.getenv("CASHFLOW_PASSWORD", "changeme-cashflow")
+    return ""
+
+
+def verify_finance_password(module_name, raw_password):
+    value = (raw_password or "").strip()
+    expected = finance_password_for(module_name)
+    return bool(expected) and hmac.compare_digest(value, expected)
+
+
+def require_finance_auth(module_name):
+    if not session.get(f"finance_{module_name}_authorized"):
+        return False
+    return True
+
+
+def collect_assignee_ids(task):
+    ids = set()
+    if task is None:
+        return ids
+    if task.assignee_id is not None:
+        ids.add(task.assignee_id)
+    for child in task.children:
+        ids |= collect_assignee_ids(child)
+    return ids
+
+
+def sync_task_assignee_tree(task, assignee_id=None):
+    if task is None:
+        return
+    if getattr(task, "_syncing_assignee_tree", False):
+        return
+
+    task._syncing_assignee_tree = True
+    try:
+        if assignee_id is not None:
+            task.assignee_id = assignee_id
+
+        for child in task.children:
+            if child.assignee_id is None or assignee_id is not None:
+                child.assignee_id = assignee_id if assignee_id is not None else task.assignee_id
+            sync_task_assignee_tree(child, child.assignee_id)
+
+        current = task.parent
+        while current:
+            ids = collect_assignee_ids(current)
+            current.assignee_id = next(iter(ids)) if len(ids) == 1 else None
+            current = current.parent
+    finally:
+        task._syncing_assignee_tree = False
+
+
+@event.listens_for(Task.assignee_id, "set", retval=True)
+def _sync_task_assignee_on_assignment(target, value, oldvalue, initiator):
+    if getattr(target, "_syncing_assignee_tree", False):
+        return value
+    sync_task_assignee_tree(target, value)
+    return value
+
+
 def root_task_for(task):
     current = task
     while current and current.parent:
@@ -347,6 +432,130 @@ def migrate_schema():
 @app.context_processor
 def inject_counts():
     return {"pending_count": Task.query.filter(Task.status != "done").count() if db.engine else 0, "oss_enabled": storage.enabled, "now": datetime.utcnow(), "timedelta": timedelta, "root_task_for": root_task_for}
+
+
+@app.get("/finance/login")
+def finance_login():
+    module = request.args.get("module", "accounting")
+    if module not in {"accounting", "cashflow"}:
+        module = "accounting"
+    return render_template("finance_login.html", module=module)
+
+
+@app.post("/finance/login")
+def finance_login_submit():
+    module = request.form.get("module", "accounting")
+    password = request.form.get("password", "")
+    if verify_finance_password(module, password):
+        session[f"finance_{module}_authorized"] = True
+        flash("已登录", "success")
+        return redirect(url_for(f"finance_{module}"))
+    flash("密码错误", "error")
+    return redirect(url_for("finance_login", module=module))
+
+
+@app.post("/finance/logout")
+def finance_logout():
+    module = request.form.get("module", "accounting")
+    session.pop(f"finance_{module}_authorized", None)
+    flash("已退出登录", "success")
+    return redirect(url_for("finance_login", module=module))
+
+
+@app.get("/finance/accounting")
+def finance_accounting():
+    if not require_finance_auth("accounting"):
+        return redirect(url_for("finance_login", module="accounting"))
+    today = date.today()
+    month = request.args.get("month") or today.strftime("%Y-%m")
+    selected_date = datetime.strptime(month + "-01", "%Y-%m-%d").date() if month else today
+    start = selected_date.replace(day=1)
+    end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    entries = FinanceEntry.query.filter(FinanceEntry.entry_date >= start, FinanceEntry.entry_date < end).order_by(FinanceEntry.entry_date.desc(), FinanceEntry.created_at.desc()).all()
+    income = sum(item.amount for item in entries if item.kind == "income")
+    expense = sum(item.amount for item in entries if item.kind == "expense")
+    balance = income - expense
+    return render_template(
+        "finance_accounting.html",
+        entries=entries,
+        month=month,
+        income=income,
+        expense=expense,
+        balance=balance,
+        selected_date=selected_date,
+        today=today,
+    )
+
+
+@app.post("/finance/accounting/entry")
+def finance_accounting_add_entry():
+    if not require_finance_auth("accounting"):
+        return redirect(url_for("finance_login", module="accounting"))
+    entry_date = request.form.get("entry_date") or date.today().isoformat()
+    category = (request.form.get("category") or request.form.get("item") or "其他").strip() or "其他"
+    kind = request.form.get("kind") or "expense"
+    amount = float(request.form.get("amount") or 0)
+    note = request.form.get("note") or ""
+    if amount <= 0:
+        flash("金额必须大于 0", "error")
+        return redirect(url_for("finance_accounting"))
+    db.session.add(FinanceEntry(entry_date=parse_date(entry_date), category=category, kind=kind, amount=amount, note=note))
+    db.session.commit()
+    sync_database()
+    flash("记账已保存", "success")
+    return redirect(url_for("finance_accounting"))
+
+
+@app.get("/finance/cashflow")
+def finance_cashflow():
+    if not require_finance_auth("cashflow"):
+        return redirect(url_for("finance_login", module="cashflow"))
+    today = date.today()
+    month = request.args.get("month") or today.strftime("%Y-%m")
+    selected_date = datetime.strptime(month + "-01", "%Y-%m-%d").date() if month else today
+    start = selected_date.replace(day=1)
+    end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    entries = CashflowEntry.query.filter(CashflowEntry.entry_date >= start, CashflowEntry.entry_date < end).order_by(CashflowEntry.entry_date.desc(), CashflowEntry.created_at.desc()).all()
+    income = sum(item.amount for item in entries if item.kind == "income")
+    expense = sum(item.amount for item in entries if item.kind == "expense")
+    net = income - expense
+    passive_income = sum(item.amount for item in entries if item.category in {"被动收入", "投资收益", "房租", "利息"} and item.kind == "income")
+    annual_expense = max(float(expense * 12), 1.0)
+    freedom_ratio = min(100, max(0, (passive_income * 12 / annual_expense) * 100))
+    return render_template(
+        "finance_cashflow.html",
+        entries=entries,
+        month=month,
+        cash_balance=net,
+        monthly_inflow=income,
+        monthly_outflow=expense,
+        freedom_index=freedom_ratio,
+        today=today,
+        selected_date=selected_date,
+    )
+
+
+@app.post("/finance/cashflow/entry")
+def finance_cashflow_add_entry():
+    if not require_finance_auth("cashflow"):
+        return redirect(url_for("finance_login", module="cashflow"))
+    entry_date = request.form.get("entry_date") or date.today().isoformat()
+    category = (request.form.get("category") or request.form.get("item") or "其他").strip() or "其他"
+    kind = request.form.get("kind") or "expense"
+    if kind in {"inflow", "outflow"}:
+        kind = "income" if kind == "inflow" else "expense"
+    if kind not in {"income", "expense"}:
+        kind = "expense"
+    amount = float(request.form.get("amount") or 0)
+    note = request.form.get("note") or ""
+    if amount <= 0:
+        flash("金额必须大于 0", "error")
+        return redirect(url_for("finance_cashflow"))
+    db.session.add(CashflowEntry(entry_date=parse_date(entry_date), category=category, kind=kind, amount=amount, note=note))
+    db.session.commit()
+    sync_database()
+    flash("现金流记录已保存", "success")
+    return redirect(url_for("finance_cashflow"))
 
 
 @app.route("/")
@@ -430,8 +639,17 @@ def task_list():
     query = Task.query
     if assignee_id:
         query = query.filter_by(assignee_id=assignee_id)
-    tasks = query.order_by(Task.due_date.is_(None), Task.due_date.asc(), Task.created_at.desc()).all()
-    return render_template("task_list.html", tasks=tasks, assignees=Assignee.query.order_by(Assignee.name).all(), current_assignee_id=assignee_id)
+    tasks = query.order_by(Task.parent_id.is_(None), Task.due_date.is_(None), Task.due_date.asc(), Task.created_at.asc()).all()
+    task_map = {task.id: task for task in tasks}
+    for task in tasks:
+        task._tree_children = []
+    for task in tasks:
+        parent_id = task.parent_id
+        if parent_id in task_map:
+            task_map[parent_id]._tree_children.append(task)
+    roots = [task for task in tasks if task.parent_id is None or task.parent_id not in task_map]
+    all_tasks = Task.query.order_by(Task.created_at.asc()).all()
+    return render_template("task_list.html", tasks=roots, assignees=Assignee.query.order_by(Assignee.name).all(), current_assignee_id=assignee_id, task_count=len(tasks), task_list_all_tasks=all_tasks)
 
 
 @app.get("/tasks/board")
@@ -481,6 +699,8 @@ def set_task_assignee(task_id):
         task.assignee_id = assignee.id
     else:
         task.assignee_id = None
+
+    sync_task_assignee_tree(task, task.assignee_id)
     db.session.commit()
     sync_database()
     flash("已更新经办人", "success")
@@ -1088,8 +1308,12 @@ def mindmap_create_task():
     else:
         if parent_id:
             db.get_or_404(Task, parent_id)
-        task = Task(title=title, parent_id=parent_id)
+        parent = db.session.get(Task, parent_id) if parent_id else None
+        task = Task(title=title, parent_id=parent_id, assignee_id=parent.assignee_id if parent else None)
         db.session.add(task)
+        db.session.commit()
+        if task.assignee_id is not None:
+            sync_task_assignee_tree(task, task.assignee_id)
         db.session.commit()
         sync_database()
         if request.is_json:
@@ -1113,8 +1337,12 @@ def mindmap_move_task(task_id):
                 return jsonify({"error": "不能移动到自己的子节点下"}), 400
             ancestor = ancestor.parent
         task.parent_id = new_parent_id
+        parent = db.session.get(Task, new_parent_id)
+        if parent and parent.assignee_id is not None:
+            task.assignee_id = parent.assignee_id
     else:
         task.parent_id = None
+    sync_task_assignee_tree(task, task.assignee_id)
     db.session.commit()
     sync_database()
     return jsonify({"ok": True})
@@ -1163,6 +1391,28 @@ def mindmap_update_task(task_id):
     task.status = payload.get("status") or "todo"
     task.priority = payload.get("priority") or "medium"
     task.due_date = parse_date(payload.get("due_date"))
+
+    raw_parent = payload.get("parent_id")
+    if raw_parent not in (None, "", "0"):
+        new_parent_id = int(raw_parent)
+        if new_parent_id != task.id:
+            candidate = db.session.get(Task, new_parent_id)
+            if candidate is None:
+                flash("上级任务不存在", "error")
+                return redirect(request.referrer or url_for("task_list"))
+            current = candidate
+            while current:
+                if current.id == task.id:
+                    flash("不能把任务移动到自己的子节点下", "error")
+                    return redirect(request.referrer or url_for("task_list"))
+                current = current.parent
+            task.parent_id = new_parent_id
+        else:
+            flash("不能指定自己为上级任务", "error")
+            return redirect(request.referrer or url_for("task_list"))
+    elif payload.get("parent_id") in (None, "", "0"):
+        task.parent_id = None
+
     assignee_id = payload.get("assignee_id")
     raw_assignee = payload.get("new_assignee_name")
     if assignee_id not in (None, "", "0"):
@@ -1178,12 +1428,16 @@ def mindmap_update_task(task_id):
             task.assignee_id = assignee.id
     elif payload.get("assignee_id") in (None, "", "0"):
         task.assignee_id = None
+    sync_task_assignee_tree(task, task.assignee_id)
     db.session.commit()
     sync_database()
     if request.is_json:
         return jsonify({"ok": True})
     flash("任务已更新", "success")
-    return redirect(url_for("mindmap"))
+    next_url = payload.get("next") or request.args.get("next")
+    if next_url and str(next_url).startswith("/"):
+        return redirect(next_url)
+    return redirect(request.referrer or url_for("task_list"))
 
 
 @app.post("/mindmap/tasks/<int:task_id>/link")
