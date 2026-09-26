@@ -85,44 +85,16 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         client = app.test_client()
         response = client.get('/finance/accounting')
         self.assertIn(response.status_code, (302, 401))
-        response = client.get('/finance/cashflow')
-        self.assertIn(response.status_code, (302, 401))
 
-    def test_cashflow_page_exposes_rich_dad_game_metrics(self):
+    def test_accounting_view_is_available_after_login(self):
         client = app.test_client()
-        login_response = client.post('/finance/login', data={'module': 'cashflow', 'password': 'changeme-cashflow'}, follow_redirects=False)
+        login_response = client.post('/finance/login', data={'module': 'accounting', 'password': 'changeme-accounting'}, follow_redirects=False)
         self.assertIn(login_response.status_code, (200, 302))
 
-        response = client.get('/finance/cashflow')
+        response = client.get('/finance/accounting')
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn('收入', html)
-        self.assertIn('支出', html)
-        self.assertIn('资产', html)
-        self.assertIn('负债', html)
-        self.assertIn('手头现金', html)
-        self.assertIn('被动收入', html)
-
-    def test_cashflow_page_targets_passive_income_above_total_expense(self):
-        client = app.test_client()
-        client.post('/finance/login', data={'module': 'cashflow', 'password': 'changeme-cashflow'}, follow_redirects=False)
-
-        response = client.get('/finance/cashflow')
-        self.assertEqual(response.status_code, 200)
-        html = response.get_data(as_text=True)
-        self.assertIn('目标：被动收入 > 所有支出', html)
-
-    def test_cashflow_page_summarizes_game_metrics_for_freedom(self):
-        client = app.test_client()
-        client.post('/finance/login', data={'module': 'cashflow', 'password': 'changeme-cashflow'}, follow_redirects=False)
-
-        response = client.get('/finance/cashflow')
-        self.assertEqual(response.status_code, 200)
-        html = response.get_data(as_text=True)
-        self.assertIn('主动收入', html)
-        self.assertIn('被动收入', html)
-        self.assertIn('财务自由指数', html)
-        self.assertIn('资产净值', html)
+        self.assertIn('个人记账', html)
 
 
 if __name__ == '__main__':

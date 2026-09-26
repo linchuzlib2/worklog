@@ -8,7 +8,6 @@
     <p class="subtitle">记录每日收支，管理每月和每年的花销与结余。</p>
   </div>
   <div class="top-actions">
-    <a class="button ghost" href="{{ url_for('finance_cashflow') }}">家庭现金流</a>
     <form method="post" action="{{ url_for('finance_logout') }}">
       <input type="hidden" name="module" value="accounting">
       <button class="button danger" type="submit">退出登录</button>

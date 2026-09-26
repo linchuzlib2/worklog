@@ -114,17 +114,6 @@ class FinanceEntry(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
-class CashflowEntry(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    entry_date = db.Column(db.Date, nullable=False)
-    category = db.Column(db.String(120), nullable=False)
-    kind = db.Column(db.String(20), nullable=False)
-    flow_type = db.Column(db.String(20), nullable=False, default="asset")
-    amount = db.Column(db.Float, nullable=False, default=0.0)
-    note = db.Column(db.Text, default="")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-
-
 class KnowledgeDoc(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
@@ -316,8 +305,6 @@ def normalize_assignee_name(name):
 def finance_password_for(module_name):
     if module_name == "accounting":
         return os.getenv("ACCOUNTING_PASSWORD", "changeme-accounting")
-    if module_name == "cashflow":
-        return os.getenv("CASHFLOW_PASSWORD", "changeme-cashflow")
     return ""
 
 
@@ -449,10 +436,6 @@ def migrate_schema():
     if "assignee_id" not in task_columns:
         db.session.execute(db.text("ALTER TABLE task ADD COLUMN assignee_id INTEGER REFERENCES assignee(id)"))
         db.session.commit()
-    cashflow_columns = {column["name"] for column in inspector.get_columns("cashflow_entry")}
-    if "flow_type" not in cashflow_columns:
-        db.session.execute(db.text("ALTER TABLE cashflow_entry ADD COLUMN flow_type VARCHAR(20) NOT NULL DEFAULT 'asset'"))
-        db.session.commit()
     if not inspector.has_table("assignee"):
         Assignee.__table__.create(bind=db.engine)
         db.session.commit()
@@ -466,7 +449,7 @@ def inject_counts():
 @app.get("/finance/login")
 def finance_login():
     module = request.args.get("module", "accounting")
-    if module not in {"accounting", "cashflow"}:
+    if module != "accounting":
         module = "accounting"
     return render_template("finance_login.html", module=module)
 
@@ -533,135 +516,6 @@ def finance_accounting_add_entry():
     sync_database()
     flash("记账已保存", "success")
     return redirect(url_for("finance_accounting"))
-
-
-@app.get("/finance/cashflow")
-def finance_cashflow():
-    if not require_finance_auth("cashflow"):
-        return redirect(url_for("finance_login", module="cashflow"))
-    today = date.today()
-    month = request.args.get("month") or today.strftime("%Y-%m")
-    selected_date = datetime.strptime(month + "-01", "%Y-%m-%d").date() if month else today
-    start = selected_date.replace(day=1)
-    end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
-    entries = CashflowEntry.query.filter(CashflowEntry.entry_date >= start, CashflowEntry.entry_date < end).order_by(CashflowEntry.entry_date.desc(), CashflowEntry.created_at.desc()).all()
-
-    income_entries = [item for item in entries if item.kind == "income" and item.flow_type in {"daily", "asset"}]
-    expense_entries = [item for item in entries if item.kind == "expense" and item.flow_type in {"daily", "liability"}]
-    asset_entries = [item for item in entries if item.flow_type == "asset"]
-    liability_entries = [item for item in entries if item.flow_type == "liability"]
-    cash_entries = [item for item in entries if item.flow_type == "cash"]
-
-    active_income = sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "daily")
-    passive_income = sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "asset")
-    total_expense = sum(item.amount for item in entries if item.kind == "expense")
-    cash_on_hand = sum(item.amount for item in cash_entries if item.kind == "income") - sum(item.amount for item in cash_entries if item.kind == "expense")
-    total_income = active_income + passive_income
-    asset_cashflow = sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "asset") - sum(item.amount for item in entries if item.kind == "expense" and item.flow_type == "asset")
-    liability_cashflow = sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "liability") - sum(item.amount for item in entries if item.kind == "expense" and item.flow_type == "liability")
-    daily_cashflow = sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "daily") - sum(item.amount for item in entries if item.kind == "expense" and item.flow_type == "daily")
-    net_cashflow = total_income - total_expense
-    asset_net_value = asset_cashflow + cash_on_hand
-    liability_balance = max(0.0, sum(item.amount for item in entries if item.kind == "expense" and item.flow_type == "liability") - sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "liability"))
-    freedom_gap = passive_income - total_expense
-    freedom_goal_met = passive_income > total_expense
-    freedom_ratio = min(100.0, max(0.0, (passive_income / total_expense) * 100.0)) if total_expense else 0.0
-
-    return render_template(
-        "finance_cashflow.html",
-        entries=entries,
-        month=month,
-        income_entries=income_entries,
-        expense_entries=expense_entries,
-        asset_entries=asset_entries,
-        liability_entries=liability_entries,
-        cash_entries=cash_entries,
-        cash_on_hand=cash_on_hand,
-        active_income=active_income,
-        passive_income=passive_income,
-        total_income=total_income,
-        total_expense=total_expense,
-        monthly_outflow=total_expense,
-        asset_cashflow=asset_cashflow,
-        liability_cashflow=liability_cashflow,
-        daily_cashflow=daily_cashflow,
-        net_cashflow=net_cashflow,
-        asset_net_value=asset_net_value,
-        liability_balance=liability_balance,
-        freedom_gap=freedom_gap,
-        freedom_index=freedom_ratio,
-        freedom_goal_met=freedom_goal_met,
-        today=today,
-        selected_date=selected_date,
-    )
-
-
-@app.post("/finance/cashflow/entry")
-def finance_cashflow_add_entry():
-    if not require_finance_auth("cashflow"):
-        return redirect(url_for("finance_login", module="cashflow"))
-    entry_date = request.form.get("entry_date") or date.today().isoformat()
-    category = (request.form.get("category") or request.form.get("item") or "其他").strip() or "其他"
-    flow_type = request.form.get("flow_type") or "daily"
-    if flow_type not in {"daily", "asset", "liability", "cash"}:
-        flow_type = "daily"
-    kind = request.form.get("kind") or "expense"
-    if kind in {"inflow", "outflow"}:
-        kind = "income" if kind == "inflow" else "expense"
-    if kind not in {"income", "expense"}:
-        kind = "expense"
-    amount = float(request.form.get("amount") or 0)
-    note = request.form.get("note") or ""
-    if amount <= 0:
-        flash("金额必须大于 0", "error")
-        return redirect(url_for("finance_cashflow"))
-    today_value = parse_date(entry_date) or date.today()
-    db.session.add(CashflowEntry(entry_date=today_value, category=category, kind=kind, flow_type=flow_type, amount=amount, note=note))
-    db.session.commit()
-    sync_database()
-    flash("现金流记录已保存", "success")
-    return redirect(url_for("finance_cashflow"))
-
-
-@app.post("/finance/cashflow/entry/<int:entry_id>/edit")
-def finance_cashflow_edit_entry(entry_id):
-    if not require_finance_auth("cashflow"):
-        return redirect(url_for("finance_login", module="cashflow"))
-    entry = db.get_or_404(CashflowEntry, entry_id)
-    entry.entry_date = parse_date(request.form.get("entry_date") or entry.entry_date.isoformat()) or date.today()
-    entry.category = (request.form.get("category") or entry.category).strip() or entry.category
-    flow_type = request.form.get("flow_type") or entry.flow_type or "daily"
-    if flow_type not in {"daily", "asset", "liability", "cash"}:
-        flow_type = entry.flow_type or "daily"
-    kind = request.form.get("kind") or entry.kind or "expense"
-    if kind in {"inflow", "outflow"}:
-        kind = "income" if kind == "inflow" else "expense"
-    if kind not in {"income", "expense"}:
-        kind = entry.kind or "expense"
-    amount = float(request.form.get("amount") or entry.amount or 0)
-    if amount <= 0:
-        flash("金额必须大于 0", "error")
-        return redirect(url_for("finance_cashflow"))
-    entry.kind = kind
-    entry.flow_type = flow_type
-    entry.amount = amount
-    entry.note = request.form.get("note") or ""
-    db.session.commit()
-    sync_database()
-    flash("现金流已更新", "success")
-    return redirect(url_for("finance_cashflow"))
-
-
-@app.post("/finance/cashflow/entry/<int:entry_id>/delete")
-def finance_cashflow_delete_entry(entry_id):
-    if not require_finance_auth("cashflow"):
-        return redirect(url_for("finance_login", module="cashflow"))
-    entry = db.get_or_404(CashflowEntry, entry_id)
-    db.session.delete(entry)
-    db.session.commit()
-    sync_database()
-    flash("现金流记录已删除", "success")
-    return redirect(url_for("finance_cashflow"))
 
 
 @app.route("/")
