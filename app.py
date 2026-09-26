@@ -278,6 +278,13 @@ def plain_text(value):
     return re.sub(r"<[^>]+>", " ", value or "")
 
 
+def root_task_for(task):
+    current = task
+    while current and current.parent:
+        current = current.parent
+    return current
+
+
 def extract_attachment_text(data, filename, content_type):
     extension = os.path.splitext(filename.lower())[1]
     if extension == ".docx" or content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
@@ -341,6 +348,7 @@ def index():
     # 合并任务与日程为统一清单
     items = []
     for task in tasks:
+        root_task = root_task_for(task)
         items.append({
             "kind": "task",
             "id": task.id,
@@ -348,7 +356,7 @@ def index():
             "description": task.description or "",
             "done": task.status == "done",
             "priority": task.priority,
-            "parent_title": task.parent.title if task.parent else "",
+            "parent_title": root_task.title if root_task and root_task.id != task.id else "",
             "time_label": task.due_date.strftime("%m月%d日截止") if task.due_date else "",
             "sort_time": datetime.combine(task.due_date, datetime.min.time()) if task.due_date else task.created_at,
         })
@@ -381,9 +389,10 @@ def index():
     today_schedules = Schedule.query.filter(Schedule.start_at.between(day_start, day_end)).order_by(Schedule.start_at).all()
     today_items = []
     for task in today_tasks:
+        root_task = root_task_for(task)
         today_items.append({"kind": "task", "id": task.id, "title": task.title, "done": False,
                             "time_label": "截止今天", "priority": task.priority,
-                            "parent_title": task.parent.title if task.parent else ""})
+                            "parent_title": root_task.title if root_task and root_task.id != task.id else ""})
     for item in today_schedules:
         label = item.start_at.strftime("%H:%M")
         if item.end_at:

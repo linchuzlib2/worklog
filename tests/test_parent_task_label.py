@@ -16,10 +16,11 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         db.drop_all()
         self.app_context.pop()
 
-    def test_dashboard_shows_parent_task_for_child_tasks(self):
-        parent = Task(title='主任务')
-        child = Task(title='子任务', parent=parent)
-        db.session.add_all([parent, child])
+    def test_dashboard_shows_root_task_for_nested_children(self):
+        root = Task(title='洗车')
+        child = Task(title='现场洗车排水', parent=root)
+        grandchild = Task(title='办理经营资质', parent=child)
+        db.session.add_all([root, child, grandchild])
         db.session.commit()
 
         client = app.test_client()
@@ -27,8 +28,8 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn('子任务', html)
-        self.assertTrue('所属主任务' in html or '所属' in html)
+        self.assertIn('办理经营资质', html)
+        self.assertIn('所属主任务：洗车', html)
 
 
 if __name__ == '__main__':
