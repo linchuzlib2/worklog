@@ -344,6 +344,30 @@ def collect_assignee_ids(task):
     return ids
 
 
+def sync_task_status_tree(task, status=None):
+    if task is None:
+        return
+    if getattr(task, "_syncing_status_tree", False):
+        return
+
+    task._syncing_status_tree = True
+    try:
+        if status is not None:
+            task.status = status
+        for child in task.children:
+            sync_task_status_tree(child, task.status)
+    finally:
+        task._syncing_status_tree = False
+
+
+@event.listens_for(Task.status, "set", retval=True)
+def _sync_task_status_on_change(target, value, oldvalue, initiator):
+    if getattr(target, "_syncing_status_tree", False):
+        return value
+    sync_task_status_tree(target, value)
+    return value
+
+
 def sync_task_assignee_tree(task, assignee_id=None):
     if task is None:
         return

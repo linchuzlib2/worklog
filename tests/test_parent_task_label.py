@@ -63,6 +63,24 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         self.assertEqual(child.assignee_id, assignee.id)
         self.assertEqual(grandchild.assignee_id, assignee.id)
 
+    def test_parent_status_propagates_to_descendants(self):
+        root = Task(title='洗车', status='todo')
+        child = Task(title='现场洗车排水', parent=root, status='todo')
+        grandchild = Task(title='办理经营资质', parent=child, status='todo')
+        db.session.add_all([root, child, grandchild])
+        db.session.commit()
+
+        root.status = 'done'
+        db.session.commit()
+
+        db.session.refresh(root)
+        db.session.refresh(child)
+        db.session.refresh(grandchild)
+
+        self.assertEqual(root.status, 'done')
+        self.assertEqual(child.status, 'done')
+        self.assertEqual(grandchild.status, 'done')
+
     def test_finance_modules_require_password(self):
         client = app.test_client()
         response = client.get('/finance/accounting')
