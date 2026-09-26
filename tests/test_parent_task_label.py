@@ -112,6 +112,18 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn('目标：被动收入 > 所有支出', html)
 
+    def test_cashflow_page_summarizes_game_metrics_for_freedom(self):
+        client = app.test_client()
+        client.post('/finance/login', data={'module': 'cashflow', 'password': 'changeme-cashflow'}, follow_redirects=False)
+
+        response = client.get('/finance/cashflow')
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('主动收入', html)
+        self.assertIn('被动收入', html)
+        self.assertIn('财务自由指数', html)
+        self.assertIn('资产净值', html)
+
 
 if __name__ == '__main__':
     unittest.main()

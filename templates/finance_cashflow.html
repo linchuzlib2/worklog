@@ -33,10 +33,76 @@
     <small>收入减去全部支出</small>
   </div>
   <div class="cashflow-card freedom">
-    <span>财务自由目标</span>
-    <strong>{{ '%.1f'|format(freedom_index) }}%</strong>
+    <span>被动收入</span>
+    <strong>¥{{ '%.2f'|format(passive_income) }}</strong>
     <small>{% if freedom_goal_met %}已达成：被动收入 > 总支出{% else %}目标：被动收入 > 总支出{% endif %}</small>
   </div>
+  <div class="cashflow-card insight">
+    <span>资产净值</span>
+    <strong>¥{{ '%.2f'|format(asset_net_value) }}</strong>
+    <small>资产增值 + 手头现金</small>
+  </div>
+</div>
+
+<div class="cashflow-scoreboard">
+  <section class="cashflow-score-card">
+    <div class="cashflow-score-head">
+      <span class="panel-tag active">现金流健康</span>
+      <strong>财务自由指数</strong>
+    </div>
+    <div class="cashflow-score-metrics">
+      <div>
+        <label>主动收入</label>
+        <strong>¥{{ '%.2f'|format(active_income) }}</strong>
+      </div>
+      <div>
+        <label>被动收入</label>
+        <strong>¥{{ '%.2f'|format(passive_income) }}</strong>
+      </div>
+      <div>
+        <label>净现金流</label>
+        <strong>¥{{ '%.2f'|format(net_cashflow) }}</strong>
+      </div>
+      <div>
+        <label>自由目标差额</label>
+        <strong>¥{{ '%.2f'|format(freedom_gap) }}</strong>
+      </div>
+    </div>
+    <div class="cashflow-meter">
+      <div class="cashflow-meter-fill" style="width: {{ '%.1f'|format(freedom_index) }}%;"></div>
+    </div>
+    <p class="cashflow-target-note">当前自由指数 {{ '%.1f'|format(freedom_index) }}%，目标是被动收入持续超过总支出。</p>
+  </section>
+
+  <section class="cashflow-score-card">
+    <div class="cashflow-score-head">
+      <span class="panel-tag balance">资产负债</span>
+      <strong>资产-负债-现金</strong>
+    </div>
+    <div class="cashflow-score-metrics">
+      <div>
+        <label>资产净值</label>
+        <strong>¥{{ '%.2f'|format(asset_net_value) }}</strong>
+      </div>
+      <div>
+        <label>负债余额</label>
+        <strong>¥{{ '%.2f'|format(liability_balance) }}</strong>
+      </div>
+      <div>
+        <label>手头现金</label>
+        <strong>¥{{ '%.2f'|format(cash_on_hand) }}</strong>
+      </div>
+      <div>
+        <label>资产现金流</label>
+        <strong>¥{{ '%.2f'|format(asset_cashflow) }}</strong>
+      </div>
+    </div>
+    <div class="cashflow-insight">
+      {% if freedom_goal_met %}
+      资产已开始形成持续现金流，说明你正在靠资产创造自由。{% else %}
+      资产还没完全覆盖支出，优先增加被动收入或减少高成本负债。{% endif %}
+    </div>
+  </section>
 </div>
 
 <div class="cashflow-game-grid">

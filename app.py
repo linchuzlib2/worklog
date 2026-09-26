@@ -561,6 +561,9 @@ def finance_cashflow():
     liability_cashflow = sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "liability") - sum(item.amount for item in entries if item.kind == "expense" and item.flow_type == "liability")
     daily_cashflow = sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "daily") - sum(item.amount for item in entries if item.kind == "expense" and item.flow_type == "daily")
     net_cashflow = total_income - total_expense
+    asset_net_value = asset_cashflow + cash_on_hand
+    liability_balance = max(0.0, sum(item.amount for item in entries if item.kind == "expense" and item.flow_type == "liability") - sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "liability"))
+    freedom_gap = passive_income - total_expense
     freedom_goal_met = passive_income > total_expense
     freedom_ratio = min(100.0, max(0.0, (passive_income / total_expense) * 100.0)) if total_expense else 0.0
 
@@ -583,6 +586,9 @@ def finance_cashflow():
         liability_cashflow=liability_cashflow,
         daily_cashflow=daily_cashflow,
         net_cashflow=net_cashflow,
+        asset_net_value=asset_net_value,
+        liability_balance=liability_balance,
+        freedom_gap=freedom_gap,
         freedom_index=freedom_ratio,
         freedom_goal_met=freedom_goal_met,
         today=today,
