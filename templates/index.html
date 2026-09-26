@@ -15,7 +15,10 @@
       <div class="today-row {% if item.done %}is-done{% endif %}">
         {% if item.kind == 'task' %}
         <form method="post" action="{{ url_for('update_task_status', task_id=item.id) }}"><input type="hidden" name="status" value="{{ 'done' if item.done else 'todo' }}"><button class="check {% if item.done %}checked{% endif %}" title="切换完成状态">{% if item.done %}✓{% endif %}</button></form>
-        <a href="{{ url_for('task_detail', task_id=item.id) }}" class="today-name {% if item.done %}completed{% endif %}">{{ item.title }}</a>
+        <div class="today-text">
+          <a href="{{ url_for('task_detail', task_id=item.id) }}" class="today-name {% if item.done %}completed{% endif %}">{{ item.title }}</a>
+          {% if item.kind == 'task' and item.parent_title %}<small class="parent-pill">所属主任务：{{ item.parent_title }}</small>{% endif %}
+        </div>
         {% else %}
         <form method="post" action="{{ url_for('update_schedule_status', schedule_id=item.id) }}"><input type="hidden" name="completed" value="{{ '0' if item.done else '1' }}"><button class="check {% if item.done %}checked{% endif %}" title="切换完成状态">{% if item.done %}✓{% endif %}</button></form>
         <a href="{{ url_for('schedule') }}" class="today-name {% if item.done %}completed{% endif %}">{{ item.title }}</a>
@@ -44,6 +47,7 @@
           {% else %}
           <a href="{{ url_for('schedule') }}" class="task-name {% if item.done %}completed{% endif %}">{{ item.title }}</a>
           {% endif %}
+          {% if item.kind == 'task' and item.parent_title %}<small class="parent-pill">所属主任务：{{ item.parent_title }}</small>{% endif %}
           <p>{{ item.description|striptags|truncate(90) or '暂无描述' }}</p>
         </div>
         <span class="type-badge {{ item.kind }}">{{ '任务' if item.kind == 'task' else '日程' }}</span>

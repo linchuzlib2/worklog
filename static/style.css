@@ -67,8 +67,10 @@
 .today-panel{border:1px solid var(--line);border-left:3px solid var(--green);border-radius:9px;background:#fff;padding:6px 14px;margin-bottom:6px}
 .today-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
 .today-row:last-child{border-bottom:none}
+.today-text{display:flex;flex-direction:column;min-width:0;flex:1;gap:3px}
 .today-name{flex:1;min-width:0;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .today-name.completed{text-decoration:line-through;color:var(--muted)}
+.parent-pill{display:inline-flex;align-items:center;gap:4px;font-size:10px;line-height:1.3;color:var(--green);background:var(--mint);padding:3px 7px;border-radius:999px;width:max-content}
 .today-count{font-size:11px;background:var(--mint);color:var(--green);border-radius:10px;padding:3px 9px}
 .today-gap{margin-top:22px}
 /* Attachment row with unlink */

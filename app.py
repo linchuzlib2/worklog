@@ -348,6 +348,7 @@ def index():
             "description": task.description or "",
             "done": task.status == "done",
             "priority": task.priority,
+            "parent_title": task.parent.title if task.parent else "",
             "time_label": task.due_date.strftime("%m月%d日截止") if task.due_date else "",
             "sort_time": datetime.combine(task.due_date, datetime.min.time()) if task.due_date else task.created_at,
         })
@@ -381,7 +382,8 @@ def index():
     today_items = []
     for task in today_tasks:
         today_items.append({"kind": "task", "id": task.id, "title": task.title, "done": False,
-                            "time_label": "截止今天", "priority": task.priority})
+                            "time_label": "截止今天", "priority": task.priority,
+                            "parent_title": task.parent.title if task.parent else ""})
     for item in today_schedules:
         label = item.start_at.strftime("%H:%M")
         if item.end_at:
