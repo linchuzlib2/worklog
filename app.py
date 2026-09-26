@@ -542,6 +542,14 @@ def finance_cashflow():
     passive_income = sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "asset")
     annual_expense = max(float(expense * 12), 1.0)
     freedom_ratio = min(100.0, max(0.0, (passive_income * 12 / annual_expense) * 100.0))
+    target_asset = max(3000.0, float(passive_income * 12) * 1.5)
+    liability_target = max(1000.0, float(expense * 6))
+    leaderboard = [
+        {"name": "资产目标", "value": max(0.0, asset_cashflow), "goal": target_asset, "progress": min(100.0, max(0.0, (max(0.0, asset_cashflow) / target_asset) * 100.0))},
+        {"name": "负债控制", "value": max(0.0, liability_cashflow * -1), "goal": liability_target, "progress": min(100.0, max(0.0, (max(0.0, liability_cashflow * -1) / liability_target) * 100.0))},
+        {"name": "自由度", "value": freedom_ratio, "goal": 100.0, "progress": freedom_ratio},
+    ]
+    leaderboard = sorted(leaderboard, key=lambda item: item["progress"], reverse=True)
     return render_template(
         "finance_cashflow.html",
         entries=entries,
@@ -554,6 +562,9 @@ def finance_cashflow():
         daily_cashflow=daily_cashflow,
         net_cashflow=net,
         freedom_index=freedom_ratio,
+        asset_target=target_asset,
+        liability_target=liability_target,
+        leaderboard=leaderboard,
         today=today,
         selected_date=selected_date,
     )

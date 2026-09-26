@@ -42,13 +42,13 @@
 <div class="cashflow-board secondary">
   <div class="cashflow-card insight">
     <span>资产目标</span>
-    <strong>¥{{ '%.2f'|format([0.0, asset_cashflow]|max) }}</strong>
-    <small>让资产持续覆盖生活成本</small>
+    <strong>¥{{ '%.2f'|format(asset_target) }}</strong>
+    <small>目标：让资产创造稳定现金流</small>
   </div>
   <div class="cashflow-card insight">
     <span>负债控制</span>
-    <strong>¥{{ '%.2f'|format([-liability_cashflow, 0.0]|max) }}</strong>
-    <small>压低“钱流出去”的负担</small>
+    <strong>¥{{ '%.2f'|format(liability_target) }}</strong>
+    <small>目标：减少对工资的依赖与负债拖累</small>
   </div>
   <div class="cashflow-card insight">
     <span>日常现金流</span>
@@ -79,6 +79,24 @@
     </div>
     <div class="cashflow-insight">
       <p>富爸爸的核心不是“挣得更多”，而是让资产创造现金流，持续覆盖负债和生活成本。把每一笔流量都分到资产、负债、日常三类，才能看清财务自由的真实推进速度。</p>
+    </div>
+  </section>
+
+  <section class="panel-block">
+    <h2>自由度排行榜</h2>
+    <div class="leaderboard-list">
+      {% for item in leaderboard %}
+      <div class="leaderboard-row">
+        <div class="leaderboard-head">
+          <strong>{{ item.name }}</strong>
+          <span>{{ '%.1f'|format(item.progress) }}%</span>
+        </div>
+        <div class="progress-track">
+          <span style="width: {{ '%.1f'|format(item.progress) }}%"></span>
+        </div>
+        <small>{{ '%.2f'|format(item.value) }} / {{ '%.2f'|format(item.goal) }}</small>
+      </div>
+      {% endfor %}
     </div>
   </section>
 
