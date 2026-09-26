@@ -5,7 +5,7 @@
   <div>
     <p class="eyebrow">FAMILY CASHFLOW</p>
     <h1>家庭现金流</h1>
-    <p class="subtitle">按富爸爸现金流游戏的结构来管理资产、负债与日常现金流，追踪财务自由实现度。</p>
+    <p class="subtitle">用富爸爸的现金流游戏思维，把主动收入、被动收入、支出和资产负债拆成四个核心板块，持续追踪财务自由实现度。</p>
   </div>
   <div class="top-actions">
     <a class="button ghost" href="{{ url_for('finance_accounting') }}">个人记账</a>
@@ -43,12 +43,12 @@
   <div class="cashflow-card insight">
     <span>资产目标</span>
     <strong>¥{{ '%.2f'|format(asset_target) }}</strong>
-    <small>目标：让资产创造稳定现金流</small>
+    <small>进度 {{ '%.1f'|format(asset_progress) }}% · 让资产创造稳定现金流</small>
   </div>
   <div class="cashflow-card insight">
     <span>负债控制</span>
     <strong>¥{{ '%.2f'|format(liability_target) }}</strong>
-    <small>目标：减少对工资的依赖与负债拖累</small>
+    <small>进度 {{ '%.1f'|format(debt_control) }}% · 减少对工资的依赖</small>
   </div>
   <div class="cashflow-card insight">
     <span>日常现金流</span>
@@ -57,87 +57,239 @@
   </div>
 </div>
 
-<div class="cashflow-layout">
-  <section class="panel-block cashflow-panel">
-    <h2>现金流结构</h2>
-    <div class="cashflow-structure">
-      <div class="cashflow-structure-row">
-        <span class="cashflow-pill asset">资产</span>
-        <strong>资产现金流</strong>
-        <span>¥{{ '%.2f'|format(asset_cashflow) }}</span>
-      </div>
-      <div class="cashflow-structure-row">
-        <span class="cashflow-pill liability">负债</span>
-        <strong>负债现金流</strong>
-        <span>¥{{ '%.2f'|format(liability_cashflow) }}</span>
-      </div>
-      <div class="cashflow-structure-row">
-        <span class="cashflow-pill daily">日常</span>
-        <strong>日常现金流</strong>
-        <span>¥{{ '%.2f'|format(daily_cashflow) }}</span>
-      </div>
+<div class="cashflow-game-grid">
+  <section class="cashflow-game-panel">
+    <div class="cashflow-panel-head">
+      <span class="panel-tag active">主动收入</span>
+      <strong>¥{{ '%.2f'|format(active_income) }}</strong>
     </div>
-    <div class="cashflow-insight">
-      <p>富爸爸的核心不是“挣得更多”，而是让资产创造现金流，持续覆盖负债和生活成本。把每一笔流量都分到资产、负债、日常三类，才能看清财务自由的真实推进速度。</p>
-    </div>
-  </section>
-
-  <section class="panel-block">
-    <h2>自由度排行榜</h2>
-    <div class="leaderboard-list">
-      {% for item in leaderboard %}
-      <div class="leaderboard-row">
-        <div class="leaderboard-head">
-          <strong>{{ item.name }}</strong>
-          <span>{{ '%.1f'|format(item.progress) }}%</span>
+    <div class="cashflow-list">
+      {% for item in active_income_entries %}
+      <article class="cashflow-entry-row">
+        <div class="cashflow-entry-main">
+          <strong>{{ item.category }}</strong>
+          <small>{{ item.entry_date.strftime('%Y-%m-%d') }}{% if item.note %} · {{ item.note }}{% endif %}</small>
         </div>
-        <div class="progress-track">
-          <span style="width: {{ '%.1f'|format(item.progress) }}%"></span>
+        <div class="cashflow-entry-right">
+          <span class="cashflow-amount positive">+¥{{ '%.2f'|format(item.amount) }}</span>
+          <button class="button ghost small" type="button" data-edit-entry="{{ item.id }}">编辑</button>
         </div>
-        <small>{{ '%.2f'|format(item.value) }} / {{ '%.2f'|format(item.goal) }}</small>
-      </div>
+        <form class="cashflow-inline-form" id="cashflow-edit-{{ item.id }}" method="post" action="{{ url_for('finance_cashflow_edit_entry', entry_id=item.id) }}" hidden>
+          <input type="date" name="entry_date" value="{{ item.entry_date.isoformat() }}" required>
+          <input type="text" name="category" value="{{ item.category }}" required>
+          <select name="kind"><option value="income" {% if item.kind == 'income' %}selected{% endif %}>收入</option><option value="expense" {% if item.kind == 'expense' %}selected{% endif %}>支出</option></select>
+          <select name="flow_type">
+            <option value="daily" {% if item.flow_type == 'daily' %}selected{% endif %}>日常</option>
+            <option value="asset" {% if item.flow_type == 'asset' %}selected{% endif %}>资产</option>
+            <option value="liability" {% if item.flow_type == 'liability' %}selected{% endif %}>负债</option>
+          </select>
+          <input type="number" step="0.01" min="0.01" name="amount" value="{{ '%.2f'|format(item.amount) }}" required>
+          <textarea name="note" rows="2">{{ item.note }}</textarea>
+          <div class="cashflow-inline-actions">
+            <button class="button primary small" type="submit">保存</button>
+            <button class="button danger small" type="submit" formaction="{{ url_for('finance_cashflow_delete_entry', entry_id=item.id) }}" formmethod="post">删除</button>
+          </div>
+        </form>
+      </article>
+      {% else %}
+      <div class="empty">暂无主动收入记录。</div>
       {% endfor %}
     </div>
+    <form method="post" action="{{ url_for('finance_cashflow_add_entry') }}" class="cashflow-add-form">
+      <input type="hidden" name="flow_type" value="daily">
+      <input type="hidden" name="kind" value="income">
+      <input type="date" name="entry_date" value="{{ selected_date.isoformat() if selected_date else today.isoformat() }}">
+      <input type="text" name="category" placeholder="新增主动收入项目" required>
+      <input type="number" name="amount" step="0.01" min="0.01" placeholder="金额" required>
+      <textarea name="note" rows="2" placeholder="说明"></textarea>
+      <button class="button primary small" type="submit">新增</button>
+    </form>
   </section>
 
-  <section class="panel-block">
-    <h2>新增现金流记录</h2>
-    <form method="post" action="{{ url_for('finance_cashflow_add_entry') }}" class="finance-form">
-      <div class="finance-grid">
-        <label>日期<input type="date" name="entry_date" value="{{ selected_date.isoformat() if selected_date else today.isoformat() }}" required></label>
-        <label>项目<input type="text" name="category" placeholder="例如：工资、租金、投资收益、房贷" required></label>
-        <label>类型<select name="kind"><option value="income">流入</option><option value="expense">流出</option></select></label>
-        <label>流向<select name="flow_type">
-          <option value="asset">资产现金流</option>
-          <option value="liability">负债现金流</option>
-          <option value="daily">日常现金流</option>
-        </select></label>
-        <label>金额<input type="number" name="amount" step="0.01" min="0.01" required></label>
+  <section class="cashflow-game-panel">
+    <div class="cashflow-panel-head">
+      <span class="panel-tag passive">被动收入</span>
+      <strong>¥{{ '%.2f'|format(passive_income) }}</strong>
+    </div>
+    <div class="cashflow-list">
+      {% for item in passive_income_entries %}
+      <article class="cashflow-entry-row">
+        <div class="cashflow-entry-main">
+          <strong>{{ item.category }}</strong>
+          <small>{{ item.entry_date.strftime('%Y-%m-%d') }}{% if item.note %} · {{ item.note }}{% endif %}</small>
+        </div>
+        <div class="cashflow-entry-right">
+          <span class="cashflow-amount positive">+¥{{ '%.2f'|format(item.amount) }}</span>
+          <button class="button ghost small" type="button" data-edit-entry="{{ item.id }}">编辑</button>
+        </div>
+        <form class="cashflow-inline-form" id="cashflow-edit-{{ item.id }}" method="post" action="{{ url_for('finance_cashflow_edit_entry', entry_id=item.id) }}" hidden>
+          <input type="date" name="entry_date" value="{{ item.entry_date.isoformat() }}" required>
+          <input type="text" name="category" value="{{ item.category }}" required>
+          <select name="kind"><option value="income" {% if item.kind == 'income' %}selected{% endif %}>收入</option><option value="expense" {% if item.kind == 'expense' %}selected{% endif %}>支出</option></select>
+          <select name="flow_type">
+            <option value="daily" {% if item.flow_type == 'daily' %}selected{% endif %}>日常</option>
+            <option value="asset" {% if item.flow_type == 'asset' %}selected{% endif %}>资产</option>
+            <option value="liability" {% if item.flow_type == 'liability' %}selected{% endif %}>负债</option>
+          </select>
+          <input type="number" step="0.01" min="0.01" name="amount" value="{{ '%.2f'|format(item.amount) }}" required>
+          <textarea name="note" rows="2">{{ item.note }}</textarea>
+          <div class="cashflow-inline-actions">
+            <button class="button primary small" type="submit">保存</button>
+            <button class="button danger small" type="submit" formaction="{{ url_for('finance_cashflow_delete_entry', entry_id=item.id) }}" formmethod="post">删除</button>
+          </div>
+        </form>
+      </article>
+      {% else %}
+      <div class="empty">暂无被动收入记录。</div>
+      {% endfor %}
+    </div>
+    <form method="post" action="{{ url_for('finance_cashflow_add_entry') }}" class="cashflow-add-form">
+      <input type="hidden" name="flow_type" value="asset">
+      <input type="hidden" name="kind" value="income">
+      <input type="date" name="entry_date" value="{{ selected_date.isoformat() if selected_date else today.isoformat() }}">
+      <input type="text" name="category" placeholder="新增被动收入项目" required>
+      <input type="number" name="amount" step="0.01" min="0.01" placeholder="金额" required>
+      <textarea name="note" rows="2" placeholder="说明"></textarea>
+      <button class="button primary small" type="submit">新增</button>
+    </form>
+  </section>
+
+  <section class="cashflow-game-panel">
+    <div class="cashflow-panel-head">
+      <span class="panel-tag expense">支出</span>
+      <strong>¥{{ '%.2f'|format(monthly_outflow) }}</strong>
+    </div>
+    <div class="cashflow-list">
+      {% for item in expense_entries %}
+      <article class="cashflow-entry-row">
+        <div class="cashflow-entry-main">
+          <strong>{{ item.category }}</strong>
+          <small>{{ item.entry_date.strftime('%Y-%m-%d') }}{% if item.note %} · {{ item.note }}{% endif %}</small>
+        </div>
+        <div class="cashflow-entry-right">
+          <span class="cashflow-amount negative">-¥{{ '%.2f'|format(item.amount) }}</span>
+          <button class="button ghost small" type="button" data-edit-entry="{{ item.id }}">编辑</button>
+        </div>
+        <form class="cashflow-inline-form" id="cashflow-edit-{{ item.id }}" method="post" action="{{ url_for('finance_cashflow_edit_entry', entry_id=item.id) }}" hidden>
+          <input type="date" name="entry_date" value="{{ item.entry_date.isoformat() }}" required>
+          <input type="text" name="category" value="{{ item.category }}" required>
+          <select name="kind"><option value="income" {% if item.kind == 'income' %}selected{% endif %}>收入</option><option value="expense" {% if item.kind == 'expense' %}selected{% endif %}>支出</option></select>
+          <select name="flow_type">
+            <option value="daily" {% if item.flow_type == 'daily' %}selected{% endif %}>日常</option>
+            <option value="asset" {% if item.flow_type == 'asset' %}selected{% endif %}>资产</option>
+            <option value="liability" {% if item.flow_type == 'liability' %}selected{% endif %}>负债</option>
+          </select>
+          <input type="number" step="0.01" min="0.01" name="amount" value="{{ '%.2f'|format(item.amount) }}" required>
+          <textarea name="note" rows="2">{{ item.note }}</textarea>
+          <div class="cashflow-inline-actions">
+            <button class="button primary small" type="submit">保存</button>
+            <button class="button danger small" type="submit" formaction="{{ url_for('finance_cashflow_delete_entry', entry_id=item.id) }}" formmethod="post">删除</button>
+          </div>
+        </form>
+      </article>
+      {% else %}
+      <div class="empty">暂无支出记录。</div>
+      {% endfor %}
+    </div>
+    <form method="post" action="{{ url_for('finance_cashflow_add_entry') }}" class="cashflow-add-form">
+      <input type="hidden" name="flow_type" value="daily">
+      <input type="hidden" name="kind" value="expense">
+      <input type="date" name="entry_date" value="{{ selected_date.isoformat() if selected_date else today.isoformat() }}">
+      <input type="text" name="category" placeholder="新增支出项目" required>
+      <input type="number" name="amount" step="0.01" min="0.01" placeholder="金额" required>
+      <textarea name="note" rows="2" placeholder="说明"></textarea>
+      <button class="button primary small" type="submit">新增</button>
+    </form>
+  </section>
+
+  <section class="cashflow-game-panel">
+    <div class="cashflow-panel-head">
+      <span class="panel-tag balance">资产与负债</span>
+      <strong>¥{{ '%.2f'|format(asset_cashflow - liability_cashflow) }}</strong>
+    </div>
+    <div class="balance-split">
+      <div class="mini-balance-card">
+        <h4>资产</h4>
+        <strong>¥{{ '%.2f'|format(asset_cashflow) }}</strong>
+        <div class="cashflow-list compact">
+          {% for item in asset_entries %}
+          <article class="cashflow-entry-row compact-row">
+            <div>
+              <strong>{{ item.category }}</strong>
+              <small>{{ item.note or '资产条目' }}</small>
+            </div>
+            <span class="cashflow-amount positive">+¥{{ '%.2f'|format(item.amount) }}</span>
+          </article>
+          {% else %}
+          <div class="empty">暂无资产。</div>
+          {% endfor %}
+        </div>
       </div>
-      <label>备注<textarea name="note" rows="3" placeholder="说明来源、用途或资产类别"></textarea></label>
-      <button class="button primary" type="submit">保存现金流</button>
+      <div class="mini-balance-card">
+        <h4>负债</h4>
+        <strong>¥{{ '%.2f'|format(liability_cashflow) }}</strong>
+        <div class="cashflow-list compact">
+          {% for item in liability_entries %}
+          <article class="cashflow-entry-row compact-row">
+            <div>
+              <strong>{{ item.category }}</strong>
+              <small>{{ item.note or '负债条目' }}</small>
+            </div>
+            <span class="cashflow-amount negative">-¥{{ '%.2f'|format(item.amount) }}</span>
+          </article>
+          {% else %}
+          <div class="empty">暂无负债。</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <form method="post" action="{{ url_for('finance_cashflow_add_entry') }}" class="cashflow-add-form">
+      <input type="date" name="entry_date" value="{{ selected_date.isoformat() if selected_date else today.isoformat() }}">
+      <input type="text" name="category" placeholder="新增资产/负债项目" required>
+      <select name="flow_type">
+        <option value="asset">资产</option>
+        <option value="liability">负债</option>
+      </select>
+      <select name="kind">
+        <option value="income">增加</option>
+        <option value="expense">减少</option>
+      </select>
+      <input type="number" name="amount" step="0.01" min="0.01" placeholder="金额" required>
+      <textarea name="note" rows="2" placeholder="说明"></textarea>
+      <button class="button primary small" type="submit">新增</button>
     </form>
   </section>
 </div>
 
 <section class="panel-block cashflow-history">
-  <h2>最近记录</h2>
-  <div class="entry-list">
-    {% for item in entries %}
-    <div class="entry-row {% if item.kind == 'income' %}income{% else %}expense{% endif %}">
-      <div>
-        <strong>{{ item.category }}</strong>
-        <small>
-          {{ item.entry_date.strftime('%Y-%m-%d') }}
-          {% if item.flow_type == 'asset' %} · 资产现金流{% elif item.flow_type == 'liability' %} · 负债现金流{% else %} · 日常现金流{% endif %}
-          {% if item.note %} · {{ item.note }}{% endif %}
-        </small>
+  <h2>自由度排行榜</h2>
+  <div class="leaderboard-list">
+    {% for item in leaderboard %}
+    <div class="leaderboard-row">
+      <div class="leaderboard-head">
+        <strong>{{ item.name }}</strong>
+        <span>{{ '%.1f'|format(item.progress) }}%</span>
       </div>
-      <span>{{ '+' if item.kind == 'income' else '-' }}¥{{ '%.2f'|format(item.amount) }}</span>
+      <div class="progress-track">
+        <span style="width: {{ '%.1f'|format(item.progress) }}%"></span>
+      </div>
+      <small>{{ '%.2f'|format(item.value) }} / {{ '%.2f'|format(item.goal) }}</small>
     </div>
-    {% else %}
-    <div class="empty">暂无现金流记录。</div>
     {% endfor %}
   </div>
 </section>
+
+{% block scripts %}
+<script>
+  document.addEventListener('click', function (event) {
+    const toggle = event.target.closest('[data-edit-entry]');
+    if (!toggle) return;
+    const targetId = 'cashflow-edit-' + toggle.getAttribute('data-edit-entry');
+    const form = document.getElementById(targetId);
+    if (form) {
+      form.hidden = !form.hidden;
+    }
+  });
+</script>
+{% endblock %}
 {% endblock %}

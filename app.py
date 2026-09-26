@@ -533,20 +533,29 @@ def finance_cashflow():
         else:
             bucket["expense"] += item.amount
 
+    active_income_entries = [item for item in entries if item.kind == "income" and item.flow_type == "daily"]
+    passive_income_entries = [item for item in entries if item.kind == "income" and item.flow_type == "asset"]
+    expense_entries = [item for item in entries if item.kind == "expense" and item.flow_type in {"daily", "liability"}]
+    asset_entries = [item for item in entries if item.flow_type == "asset"]
+    liability_entries = [item for item in entries if item.flow_type == "liability"]
+
     asset_cashflow = flow_totals["asset"]["income"] - flow_totals["asset"]["expense"]
     liability_cashflow = flow_totals["liability"]["income"] - flow_totals["liability"]["expense"]
     daily_cashflow = flow_totals["daily"]["income"] - flow_totals["daily"]["expense"]
     income = sum(item.amount for item in entries if item.kind == "income")
     expense = sum(item.amount for item in entries if item.kind == "expense")
     net = income - expense
-    passive_income = sum(item.amount for item in entries if item.kind == "income" and item.flow_type == "asset")
+    passive_income = sum(item.amount for item in passive_income_entries)
+    active_income = sum(item.amount for item in active_income_entries)
     annual_expense = max(float(expense * 12), 1.0)
     freedom_ratio = min(100.0, max(0.0, (passive_income * 12 / annual_expense) * 100.0))
     target_asset = max(3000.0, float(passive_income * 12) * 1.5)
     liability_target = max(1000.0, float(expense * 6))
+    debt_control = max(0.0, max(0.0, liability_cashflow * -1) / max(liability_target, 1.0) * 100.0)
+    asset_progress = min(100.0, max(0.0, (max(0.0, asset_cashflow) / max(target_asset, 1.0)) * 100.0))
     leaderboard = [
-        {"name": "资产目标", "value": max(0.0, asset_cashflow), "goal": target_asset, "progress": min(100.0, max(0.0, (max(0.0, asset_cashflow) / target_asset) * 100.0))},
-        {"name": "负债控制", "value": max(0.0, liability_cashflow * -1), "goal": liability_target, "progress": min(100.0, max(0.0, (max(0.0, liability_cashflow * -1) / liability_target) * 100.0))},
+        {"name": "资产目标", "value": max(0.0, asset_cashflow), "goal": target_asset, "progress": asset_progress},
+        {"name": "负债控制", "value": max(0.0, liability_cashflow * -1), "goal": liability_target, "progress": debt_control},
         {"name": "自由度", "value": freedom_ratio, "goal": 100.0, "progress": freedom_ratio},
     ]
     leaderboard = sorted(leaderboard, key=lambda item: item["progress"], reverse=True)
@@ -557,6 +566,8 @@ def finance_cashflow():
         cash_balance=net,
         monthly_inflow=income,
         monthly_outflow=expense,
+        active_income=active_income,
+        passive_income=passive_income,
         asset_cashflow=asset_cashflow,
         liability_cashflow=liability_cashflow,
         daily_cashflow=daily_cashflow,
@@ -564,7 +575,14 @@ def finance_cashflow():
         freedom_index=freedom_ratio,
         asset_target=target_asset,
         liability_target=liability_target,
+        asset_progress=asset_progress,
+        debt_control=debt_control,
         leaderboard=leaderboard,
+        active_income_entries=active_income_entries,
+        passive_income_entries=passive_income_entries,
+        expense_entries=expense_entries,
+        asset_entries=asset_entries,
+        liability_entries=liability_entries,
         today=today,
         selected_date=selected_date,
     )
@@ -593,6 +611,47 @@ def finance_cashflow_add_entry():
     db.session.commit()
     sync_database()
     flash("现金流记录已保存", "success")
+    return redirect(url_for("finance_cashflow"))
+
+
+@app.post("/finance/cashflow/entry/<int:entry_id>/edit")
+def finance_cashflow_edit_entry(entry_id):
+    if not require_finance_auth("cashflow"):
+        return redirect(url_for("finance_login", module="cashflow"))
+    entry = db.get_or_404(CashflowEntry, entry_id)
+    entry.entry_date = parse_date(request.form.get("entry_date") or entry.entry_date.isoformat())
+    entry.category = (request.form.get("category") or entry.category).strip() or entry.category
+    flow_type = request.form.get("flow_type") or entry.flow_type or "daily"
+    if flow_type not in {"asset", "liability", "daily"}:
+        flow_type = entry.flow_type or "daily"
+    kind = request.form.get("kind") or entry.kind or "expense"
+    if kind in {"inflow", "outflow"}:
+        kind = "income" if kind == "inflow" else "expense"
+    if kind not in {"income", "expense"}:
+        kind = entry.kind or "expense"
+    amount = float(request.form.get("amount") or entry.amount or 0)
+    if amount <= 0:
+        flash("金额必须大于 0", "error")
+        return redirect(url_for("finance_cashflow"))
+    entry.kind = kind
+    entry.flow_type = flow_type
+    entry.amount = amount
+    entry.note = request.form.get("note") or ""
+    db.session.commit()
+    sync_database()
+    flash("现金流已更新", "success")
+    return redirect(url_for("finance_cashflow"))
+
+
+@app.post("/finance/cashflow/entry/<int:entry_id>/delete")
+def finance_cashflow_delete_entry(entry_id):
+    if not require_finance_auth("cashflow"):
+        return redirect(url_for("finance_login", module="cashflow"))
+    entry = db.get_or_404(CashflowEntry, entry_id)
+    db.session.delete(entry)
+    db.session.commit()
+    sync_database()
+    flash("现金流记录已删除", "success")
     return redirect(url_for("finance_cashflow"))
 
 
