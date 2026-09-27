@@ -40,18 +40,21 @@
       const endInput = startInput.closest('form').querySelector('input[name="end_at"]');
       if (!endInput) return;
       const toDateTimeValue = function (date) {
-        return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        const pad = function (value) { return String(value).padStart(2, '0'); };
+        return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
       };
-      startInput.addEventListener('change', function () {
+      const syncEndFromStart = function () {
         if (!startInput.value) return;
         const start = new Date(startInput.value);
-        if (isNaN(start.getTime())) return;
-        const end = new Date(start.getTime() + 30 * 60 * 1000);
+        if (Number.isNaN(start.getTime())) return;
         const currentEnd = endInput.value ? new Date(endInput.value) : null;
         if (!currentEnd || currentEnd <= start) {
+          const end = new Date(start.getTime() + 30 * 60 * 1000);
           endInput.value = toDateTimeValue(end);
         }
-      });
+      };
+      startInput.addEventListener('input', syncEndFromStart);
+      startInput.addEventListener('change', syncEndFromStart);
     });
   });
 </script>

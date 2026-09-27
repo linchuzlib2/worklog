@@ -77,7 +77,22 @@ const scheduleDialog = document.querySelector('#schedule-dialog');
 if (scheduleDialog) {
   const startInput = scheduleDialog.querySelector('input[name="start_at"]');
   const endInput = scheduleDialog.querySelector('input[name="end_at"]');
-  const toDateTimeValue = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  const toDateTimeValue = (date) => {
+    const pad = (v) => String(v).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+  const syncEndFromStart = () => {
+    if (!startInput.value) return;
+    const start = new Date(startInput.value);
+    if (Number.isNaN(start.getTime())) return;
+    const currentEnd = endInput.value ? new Date(endInput.value) : null;
+    if (!currentEnd || currentEnd <= start) {
+      const end = new Date(start.getTime() + 30 * 60 * 1000);
+      endInput.value = toDateTimeValue(end);
+    }
+  };
+  startInput.addEventListener('input', syncEndFromStart);
+  startInput.addEventListener('change', syncEndFromStart);
   const openScheduleDialog = (date, time) => {
     const start = new Date(`${date}T${time}:00`);
     startInput.value = toDateTimeValue(start);
