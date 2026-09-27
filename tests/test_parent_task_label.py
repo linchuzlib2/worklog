@@ -1,6 +1,7 @@
 import unittest
+from datetime import datetime, timedelta
 
-from app import app, Assignee, db, Task
+from app import app, Assignee, Schedule, db, Task
 
 
 class DashboardParentTaskLabelTestCase(unittest.TestCase):
@@ -81,6 +82,22 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         self.assertEqual(child.status, 'done')
         self.assertEqual(grandchild.status, 'done')
 
+    def test_overdue_schedule_is_returned_by_reminder_api(self):
+        overdue = Schedule(
+            title='未及时处理的会议',
+            start_at=datetime.now() - timedelta(minutes=20),
+            end_at=datetime.now() - timedelta(minutes=5),
+            completed=False,
+            description='需跟进',
+        )
+        db.session.add(overdue)
+        db.session.commit()
+
+        client = app.test_client()
+        response = client.get('/api/reminders')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(any(item['title'] == '未及时处理的会议' for item in payload))
 
 
 if __name__ == '__main__':
