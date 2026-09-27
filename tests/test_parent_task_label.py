@@ -1,7 +1,10 @@
 import unittest
 from datetime import datetime, timedelta
+from io import BytesIO
 
-from app import app, Assignee, Schedule, db, Task
+from openpyxl import Workbook
+
+from app import KnowledgeDoc, app, Assignee, Schedule, db, Task
 
 
 class DashboardParentTaskLabelTestCase(unittest.TestCase):
@@ -98,6 +101,28 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         self.assertTrue(any(item['title'] == '未及时处理的会议' for item in payload))
+
+    def test_knowledge_upload_accepts_xlsx_files(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(['姓名', '部门'])
+        sheet.append(['张三', '研发'])
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+
+        client = app.test_client()
+        response = client.post(
+            '/knowledge/upload',
+            data={'title': '人员名单', 'file': (buffer, '人员名单.xlsx')},
+            content_type='multipart/form-data',
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('已导入', response.get_data(as_text=True))
+        self.assertIsNotNone(KnowledgeDoc.query.filter_by(title='人员名单').first())
 
 
 if __name__ == '__main__':

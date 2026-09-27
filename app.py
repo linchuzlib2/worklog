@@ -371,6 +371,12 @@ def extract_attachment_text(data, filename, content_type):
     if extension == ".docx" or content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
         document = Document(BytesIO(data))
         return "\n".join(paragraph.text for paragraph in document.paragraphs)
+    if extension in {".doc", ".docx"}:
+        try:
+            document = Document(BytesIO(data))
+            return "\n".join(paragraph.text for paragraph in document.paragraphs)
+        except Exception:
+            pass
     if extension == ".xlsx" or content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
         workbook = openpyxl.load_workbook(BytesIO(data), read_only=True, data_only=True)
         return "\n".join(
@@ -388,6 +394,42 @@ def extract_attachment_text(data, filename, content_type):
     if (content_type or "").startswith("text/"):
         return data.decode("utf-8", errors="ignore")
     return ""
+
+
+def extract_knowledge_file_text(data, filename):
+    lower = filename.lower()
+    if lower.endswith(".docx") or lower.endswith(".doc"):
+        try:
+            document = Document(BytesIO(data))
+            return "\n".join(p.text for p in document.paragraphs if p.text.strip())
+        except Exception:
+            return ""
+    if lower.endswith(".xlsx"):
+        workbook = openpyxl.load_workbook(BytesIO(data), read_only=True, data_only=True)
+        return "\n".join(
+            "\t".join(str(cell) for cell in row if cell is not None)
+            for worksheet in workbook.worksheets
+            for row in worksheet.iter_rows(values_only=True)
+        )
+    if lower.endswith(".xls"):
+        workbook = xlrd.open_workbook(file_contents=data, on_demand=True)
+        return "\n".join(
+            "\t".join(str(cell) for cell in worksheet.row_values(row_index) if cell != "")
+            for worksheet in workbook.sheets()
+            for row_index in range(worksheet.nrows)
+        )
+    if lower.endswith(".pdf"):
+        from pypdf import PdfReader
+        reader = PdfReader(BytesIO(data))
+        pages = []
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            if text.strip():
+                pages.append(text)
+        return "\n".join(pages)
+    if lower.endswith((".txt", ".md")):
+        return data.decode("utf-8", errors="ignore")
+    raise ValueError("仅支持 .txt / .md / .doc / .docx / .xls / .xlsx / .pdf 文件")
 
 
 def migrate_schema():
@@ -882,26 +924,20 @@ def _knowledge_upload_inner():
         if not title:
             title = os.path.splitext(filename)[0]
         lower = filename.lower()
-        if lower.endswith(".docx"):
-            import docx
-            document = docx.Document(BytesIO(upload.read()))
-            content = "\n".join(p.text for p in document.paragraphs if p.text.strip())
-        elif lower.endswith(".pdf"):
-            from pypdf import PdfReader
-            reader = PdfReader(BytesIO(upload.read()))
-            pages = []
-            for page in reader.pages:
-                text = page.extract_text() or ""
-                if text.strip():
-                    pages.append(text)
-            content = "\n".join(pages)
-            if not content.strip():
-                flash("该 PDF 提取不到文字（可能是扫描件/图片版），请改用可复制文字的 PDF 或粘贴文本", "error")
-                return redirect(url_for("knowledge"))
-        elif lower.endswith((".txt", ".md")):
-            content = upload.read().decode("utf-8", errors="ignore")
-        else:
-            flash("仅支持 .txt / .md / .docx / .pdf 文件，或直接粘贴文本", "error")
+        try:
+            data = upload.read()
+            if lower.endswith(".pdf"):
+                content = extract_knowledge_file_text(data, filename)
+                if not content.strip():
+                    flash("该 PDF 提取不到文字（可能是扫描件/图片版），请改用可复制文字的 PDF 或粘贴文本", "error")
+                    return redirect(url_for("knowledge"))
+            else:
+                content = extract_knowledge_file_text(data, filename)
+        except ValueError as exc:
+            flash(str(exc) + "，或直接粘贴文本", "error")
+            return redirect(url_for("knowledge"))
+        except Exception as exc:
+            flash(f"读取文件失败：{exc}", "error")
             return redirect(url_for("knowledge"))
     elif pasted:
         content = pasted
