@@ -108,29 +108,8 @@ class FinanceEntry(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     entry_date = db.Column(db.Date, nullable=False)
     category = db.Column(db.String(120), nullable=False)
-    kind = db.Column(db.String(20), nullable=False, default="expense")
-    entry_group = db.Column(db.String(20), nullable=False, default="expense")
+    kind = db.Column(db.String(20), nullable=False)
     amount = db.Column(db.Float, nullable=False, default=0.0)
-    note = db.Column(db.Text, default="")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-
-
-class FinanceBudget(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    month = db.Column(db.String(7), nullable=False)
-    category = db.Column(db.String(120), nullable=False)
-    limit_amount = db.Column(db.Float, nullable=False, default=0.0)
-    alert_threshold = db.Column(db.Float, nullable=False, default=80.0)
-    note = db.Column(db.Text, default="")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-
-
-class FinanceTarget(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    month = db.Column(db.String(7), nullable=False)
-    name = db.Column(db.String(120), nullable=False)
-    target_type = db.Column(db.String(20), nullable=False, default="savings")
-    target_amount = db.Column(db.Float, nullable=False, default=0.0)
     note = db.Column(db.Text, default="")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
@@ -311,19 +290,6 @@ def parse_date(value):
     return datetime.strptime(value, "%Y-%m-%d").date()
 
 
-def finance_entry_group(value):
-    normalized = (value or "").strip().lower()
-    if normalized in {"income", "收入", "in"}:
-        return "income"
-    if normalized in {"expense", "支出", "out"}:
-        return "expense"
-    if normalized in {"asset", "资产", "assets"}:
-        return "asset"
-    if normalized in {"liability", "负债", "liabilities"}:
-        return "liability"
-    return "expense"
-
-
 def parse_datetime(value):
     return datetime.strptime(value, "%Y-%m-%dT%H:%M") if value else None
 
@@ -473,17 +439,6 @@ def migrate_schema():
     if not inspector.has_table("assignee"):
         Assignee.__table__.create(bind=db.engine)
         db.session.commit()
-    finance_columns = {column["name"] for column in inspector.get_columns("finance_entry")}
-    if "entry_group" not in finance_columns:
-        db.session.execute(db.text("ALTER TABLE finance_entry ADD COLUMN entry_group VARCHAR(20) NOT NULL DEFAULT 'expense'"))
-        db.session.commit()
-    if not inspector.has_table("finance_budget"):
-        FinanceBudget.__table__.create(bind=db.engine)
-        db.session.commit()
-    if not inspector.has_table("finance_target"):
-        FinanceTarget.__table__.create(bind=db.engine)
-        db.session.commit()
-    db.session.commit()
 
 
 @app.context_processor
@@ -529,136 +484,18 @@ def finance_accounting():
     start = selected_date.replace(day=1)
     end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
     entries = FinanceEntry.query.filter(FinanceEntry.entry_date >= start, FinanceEntry.entry_date < end).order_by(FinanceEntry.entry_date.desc(), FinanceEntry.created_at.desc()).all()
-    income = sum(item.amount for item in entries if finance_entry_group(item.kind if item.kind else item.entry_group) == "income")
-    expense = sum(item.amount for item in entries if finance_entry_group(item.kind if item.kind else item.entry_group) == "expense")
-    asset_total = sum(item.amount for item in entries if finance_entry_group(item.kind if item.kind else item.entry_group) == "asset")
-    liability_total = sum(item.amount for item in entries if finance_entry_group(item.kind if item.kind else item.entry_group) == "liability")
+    income = sum(item.amount for item in entries if item.kind == "income")
+    expense = sum(item.amount for item in entries if item.kind == "expense")
     balance = income - expense
-
-    income_entries = [item for item in entries if finance_entry_group(item.kind if item.kind else item.entry_group) == "income"]
-    expense_entries = [item for item in entries if finance_entry_group(item.kind if item.kind else item.entry_group) == "expense"]
-    asset_entries = [item for item in entries if finance_entry_group(item.kind if item.kind else item.entry_group) == "asset"]
-    liability_entries = [item for item in entries if finance_entry_group(item.kind if item.kind else item.entry_group) == "liability"]
-
-    asset_cashflow = sum(item.amount for item in asset_entries)
-    liability_cashflow = sum(item.amount for item in liability_entries)
-    passive_cashflow = asset_cashflow - liability_cashflow
-    freedom_ratio = (passive_cashflow / expense * 100) if expense else 0.0
-
-    category_totals = {}
-    for item in expense_entries:
-        category_totals[item.category] = category_totals.get(item.category, 0.0) + item.amount
-    category_rows = [
-        {"category": category, "amount": amount, "kind": "expense"}
-        for category, amount in sorted(category_totals.items(), key=lambda item: item[1], reverse=True)
-    ]
-
-    trend_rows = []
-    for offset in range(6):
-        year = selected_date.year
-        month_index = selected_date.month - offset
-        while month_index <= 0:
-            year -= 1
-            month_index += 12
-        while month_index > 12:
-            year += 1
-            month_index -= 12
-        month_label = f"{year}-{month_index:02d}"
-        month_start = date(year, month_index, 1)
-        next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
-        month_entries = FinanceEntry.query.filter(FinanceEntry.entry_date >= month_start, FinanceEntry.entry_date < next_month).all()
-        month_income = sum(item.amount for item in month_entries if finance_entry_group(item.kind if item.kind else item.entry_group) == "income")
-        month_expense = sum(item.amount for item in month_entries if finance_entry_group(item.kind if item.kind else item.entry_group) == "expense")
-        trend_rows.append({
-            "label": month_label,
-            "income": month_income,
-            "expense": month_expense,
-            "balance": month_income - month_expense,
-        })
-    trend_rows.reverse()
-
-    budgets = FinanceBudget.query.filter_by(month=month).order_by(FinanceBudget.created_at.desc()).all()
-    budget_rows = []
-    for budget in budgets:
-        spent = sum(item.amount for item in expense_entries if item.category == budget.category)
-        usage = 0.0 if budget.limit_amount <= 0 else min(100.0, (spent / budget.limit_amount) * 100)
-        budget_rows.append({
-            "category": budget.category,
-            "limit_amount": budget.limit_amount,
-            "spent": spent,
-            "usage": usage,
-            "warning": usage >= (budget.alert_threshold or 80.0),
-            "note": budget.note,
-        })
-
-    targets = FinanceTarget.query.filter_by(month=month).order_by(FinanceTarget.created_at.desc()).all()
-    target_rows = []
-    for target in targets:
-        if target.target_type == "income":
-            actual = income
-        elif target.target_type == "expense":
-            actual = expense
-        elif target.target_type == "savings":
-            actual = balance
-        elif target.target_type == "asset":
-            actual = asset_total
-        elif target.target_type == "liability":
-            actual = liability_total
-        else:
-            actual = income - expense
-        progress = 0.0 if target.target_amount <= 0 else min(100.0, (actual / target.target_amount) * 100)
-        target_rows.append({
-            "name": target.name,
-            "target_type": target.target_type,
-            "target_amount": target.target_amount,
-            "actual": actual,
-            "progress": progress,
-            "note": target.note,
-        })
-
-    net_flow = income - expense
-    month_status = "正常" if net_flow >= 0 else "风险"
-    if expense and income:
-        savings_rate = max(0.0, min(100.0, (net_flow / income) * 100 if income else 0))
-    else:
-        savings_rate = 0.0
-
-    report_cards = [
-        {"label": "收入", "value": income, "kind": "income"},
-        {"label": "支出", "value": expense, "kind": "expense"},
-        {"label": "净现金流", "value": net_flow, "kind": "balance"},
-        {"label": "被动现金流", "value": passive_cashflow, "kind": "balance"},
-        {"label": "财务自由比例", "value": freedom_ratio, "kind": "income"},
-        {"label": "净资产", "value": asset_total - liability_total, "kind": "asset"},
-    ]
-
     return render_template(
         "finance_accounting.html",
         entries=entries,
-        income_entries=income_entries,
-        expense_entries=expense_entries,
-        asset_entries=asset_entries,
-        liability_entries=liability_entries,
         month=month,
         income=income,
         expense=expense,
         balance=balance,
-        asset_total=asset_total,
-        liability_total=liability_total,
         selected_date=selected_date,
         today=today,
-        category_rows=category_rows,
-        trend_rows=trend_rows,
-        month_status=month_status,
-        savings_rate=savings_rate,
-        net_flow=net_flow,
-        passive_cashflow=passive_cashflow,
-        freedom_ratio=freedom_ratio,
-        report_cards=report_cards,
-        budgets=budgets,
-        budget_rows=budget_rows,
-        targets=targets,
-        target_rows=target_rows,
     )
 
 
@@ -668,55 +505,17 @@ def finance_accounting_add_entry():
         return redirect(url_for("finance_login", module="accounting"))
     entry_date = request.form.get("entry_date") or date.today().isoformat()
     category = (request.form.get("category") or request.form.get("item") or "其他").strip() or "其他"
-    selected_group = request.form.get("entry_group") or request.form.get("kind") or "expense"
-    # 资产与负债的现金流是持续的每月流动，不要求每笔都记录精确日期。
-    flow_group = finance_entry_group(selected_group)
+    kind = request.form.get("kind") or "expense"
     amount = float(request.form.get("amount") or 0)
     note = request.form.get("note") or ""
     if amount <= 0:
         flash("金额必须大于 0", "error")
         return redirect(url_for("finance_accounting"))
-    db.session.add(FinanceEntry(entry_date=parse_date(entry_date), category=category, kind=flow_group, entry_group=flow_group, amount=amount, note=note))
+    db.session.add(FinanceEntry(entry_date=parse_date(entry_date), category=category, kind=kind, amount=amount, note=note))
     db.session.commit()
     sync_database()
     flash("记账已保存", "success")
     return redirect(url_for("finance_accounting"))
-
-
-@app.post("/finance/accounting/budget")
-def finance_accounting_add_budget():
-    if not require_finance_auth("accounting"):
-        return redirect(url_for("finance_login", module="accounting"))
-    category = (request.form.get("category") or "其他").strip() or "其他"
-    month = request.form.get("month") or date.today().strftime("%Y-%m")
-    limit_amount = float(request.form.get("limit_amount") or 0)
-    alert_threshold = float(request.form.get("alert_threshold") or 80)
-    note = request.form.get("note") or ""
-    if limit_amount <= 0:
-        flash("预算金额必须大于 0", "error")
-        return redirect(url_for("finance_accounting", month=month))
-    db.session.add(FinanceBudget(month=month, category=category, limit_amount=limit_amount, alert_threshold=alert_threshold, note=note))
-    db.session.commit()
-    flash("预算提醒已保存", "success")
-    return redirect(url_for("finance_accounting", month=month))
-
-
-@app.post("/finance/accounting/target")
-def finance_accounting_add_target():
-    if not require_finance_auth("accounting"):
-        return redirect(url_for("finance_login", module="accounting"))
-    month = request.form.get("month") or date.today().strftime("%Y-%m")
-    name = (request.form.get("name") or "本月目标").strip() or "本月目标"
-    target_type = request.form.get("target_type") or "savings"
-    target_amount = float(request.form.get("target_amount") or 0)
-    note = request.form.get("note") or ""
-    if target_amount <= 0:
-        flash("目标金额必须大于 0", "error")
-        return redirect(url_for("finance_accounting", month=month))
-    db.session.add(FinanceTarget(month=month, name=name, target_type=target_type, target_amount=target_amount, note=note))
-    db.session.commit()
-    flash("月度目标已保存", "success")
-    return redirect(url_for("finance_accounting", month=month))
 
 
 @app.route("/")
