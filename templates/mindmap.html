@@ -137,12 +137,23 @@
   var dragState = { dragging: null, moved: false, ghost: null, hoverEl: null };
   var panState = null;
 
+  function toWorld(clientX, clientY) {
+    var rect = wrap.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left - view.x) / view.k,
+      y: (clientY - rect.top - view.y) / view.k
+    };
+  }
+
   wrap.addEventListener('mousedown', function (ev) {
     if (ev.button !== 0 || editing) return;
     var g = ev.target.closest ? ev.target.closest('.map-node') : null;
     if (g && !g.__node.root) {
       dragState.dragging = g.__node; dragState.moved = false;
       dragState.startX = ev.clientX; dragState.startY = ev.clientY;
+      dragState.startWorld = toWorld(ev.clientX, ev.clientY);
+      dragState.originX = g.__node.x;
+      dragState.originY = g.__node.y;
       ev.preventDefault();
     } else if (!g) {
       panState = { x: ev.clientX, y: ev.clientY, vx: view.x, vy: view.y, moved: false };
@@ -167,14 +178,24 @@
     if (!dragState.moved && Math.abs(dx) + Math.abs(dy) > 5) {
       dragState.moved = true;
       var n = dragState.dragging;
-      dragState.ghost = el('rect', { width: node.w, height: NH, rx: 9, fill: 'rgba(35,131,99,.15)', stroke: '#238363', 'stroke-dasharray': '4 3', x: n.x + dx / view.k, y: n.y - NH / 2 + dy / view.k });
+      dragState.ghost = el('rect', { width: n.w, height: NH, rx: 9, fill: 'rgba(35,131,99,.15)', stroke: '#238363', 'stroke-dasharray': '4 3', x: n.x, y: n.y - NH / 2 });
       svg.appendChild(dragState.ghost);
     }
-    if (dragState.moved && dragState.ghost) {
-      dragState.ghost.setAttribute('x', dragState.dragging.x + dx / view.k);
-      dragState.ghost.setAttribute('y', dragState.dragging.y - NH / 2 + dy / view.k);
+    if (dragState.moved) {
+      var world = toWorld(ev.clientX, ev.clientY);
+      var nextX = dragState.originX + (world.x - dragState.startWorld.x);
+      var nextY = dragState.originY + (world.y - dragState.startWorld.y);
+      dragState.dragging.x = nextX;
+      dragState.dragging.y = nextY;
+      if (dragState.dragging.__el) {
+        dragState.dragging.__el.setAttribute('transform', 'translate(' + nextX + ',' + (nextY - NH / 2) + ')');
+      }
+      if (dragState.ghost) {
+        dragState.ghost.setAttribute('x', nextX);
+        dragState.ghost.setAttribute('y', nextY - NH / 2);
+      }
       clearDropHint();
-      var target = nodeAt(dragState.dragging.x + dx / view.k, dragState.dragging.y + dy / view.k, dragState.dragging);
+      var target = nodeAt(world.x, world.y, dragState.dragging);
       if (target && target.__el) { dragState.hoverEl = target.__el; dragState.hoverEl.classList.add('drop-hint'); }
     }
   });
@@ -186,13 +207,12 @@
   document.addEventListener('mouseup', function (ev) {
     if (!dragState.dragging) return;
     var node = dragState.dragging;
-    var dx = ev.clientX - dragState.startX, dy = ev.clientY - dragState.startY;
     var moved = dragState.moved;
     if (dragState.ghost) { svg.removeChild(dragState.ghost); dragState.ghost = null; }
     clearDropHint();
+    var target = moved ? nodeAt(toWorld(ev.clientX, ev.clientY).x, toWorld(ev.clientX, ev.clientY).y, node) : null;
     dragState.dragging = null;
     if (moved) {
-      var target = nodeAt(node.x + dx / view.k, node.y + dy / view.k, node);
       if (target && target !== node) {
         fetch('/mindmap/tasks/' + node.id + '/move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ parent_id: target.id }) })
           .then(function (r) { return r.json(); }).then(function (res) { if (res.error) mmAlert(res.error); reloadTree(node.id); });
