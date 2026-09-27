@@ -16,10 +16,9 @@
 </section>
 
 <div class="finance-summary">
-  <div class="finance-card"><span>本月收入</span><strong>¥{{ '%.2f'|format(income) }}</strong></div>
-  <div class="finance-card"><span>本月支出</span><strong>¥{{ '%.2f'|format(expense) }}</strong></div>
-  <div class="finance-card accent"><span>结余</span><strong>¥{{ '%.2f'|format(balance) }}</strong></div>
-  <div class="finance-card"><span>净现金流</span><strong>¥{{ '%.2f'|format(net_flow) }}</strong></div>
+  {% for card in report_cards %}
+  <div class="finance-card {% if card.kind == 'balance' %}accent{% endif %}"><span>{{ card.label }}</span><strong>¥{{ '%.2f'|format(card.value) }}</strong></div>
+  {% endfor %}
 </div>
 
 <div class="finance-layout">
@@ -32,21 +31,21 @@
         <div class="panel-tag balance">储蓄率 {{ '%.1f'|format(savings_rate) }}%</div>
       </div>
       <div class="mini-balance-card">
-        <h4>最近 6 个月</h4>
-        <strong>¥{{ '%.2f'|format(trend_rows[-1].balance if trend_rows else 0) }}</strong>
-        <div class="panel-tag active">月度结余</div>
+        <h4>资产 - 负债</h4>
+        <strong>¥{{ '%.2f'|format(asset_total - liability_total) }}</strong>
+        <div class="panel-tag active">净资产</div>
       </div>
     </div>
 
     <div class="compact-toolbar" style="margin-top: 18px;">
-      <h3 style="margin: 0 0 12px; font-size: 14px;">分类占比</h3>
+      <h3 style="margin: 0 0 12px; font-size: 14px;">支出分类</h3>
       {% for row in category_rows[:6] %}
       <div class="panel-item">
         <span>{{ row.category }}</span>
-        <strong>{{ '+' if row.kind == 'income' else '-' }}¥{{ '%.2f'|format(row.amount) }}</strong>
+        <strong>¥{{ '%.2f'|format(row.amount) }}</strong>
       </div>
       {% else %}
-      <div class="empty">暂无分类数据，先记录一笔收支即可。</div>
+      <div class="empty">暂无分类数据，先记录一笔支出即可。</div>
       {% endfor %}
     </div>
   </section>
@@ -56,12 +55,17 @@
     <form method="post" action="{{ url_for('finance_accounting_add_entry') }}" class="finance-form">
       <div class="finance-grid">
         <label>日期<input type="date" name="entry_date" value="{{ selected_date.isoformat() if selected_date else today.isoformat() }}" required></label>
-        <label>类别<input type="text" name="category" placeholder="例如：餐饮、交通、房租" required></label>
-        <label>类型<select name="kind"><option value="expense">支出</option><option value="income">收入</option></select></label>
+        <label>类别<input type="text" name="category" placeholder="例如：餐饮、薪资、房产" required></label>
+        <label>类型<select name="entry_group">
+          <option value="expense">支出</option>
+          <option value="income">收入</option>
+          <option value="asset">资产</option>
+          <option value="liability">负债</option>
+        </select></label>
         <label>金额<input type="number" name="amount" step="0.01" min="0.01" required></label>
       </div>
       <label>备注<textarea name="note" rows="3" placeholder="说明用途或来源"></textarea></label>
-      <button class="button primary" type="submit">保存到记账本</button>
+      <button class="button primary" type="submit">保存到现金流表</button>
     </form>
   </section>
 </div>
@@ -85,20 +89,103 @@
   </section>
 
   <section class="panel-block">
-    <h2>当月账单</h2>
-    <div class="entry-list">
-      {% for entry in entries %}
-      <div class="entry-row {% if entry.kind == 'income' %}income{% else %}expense{% endif %}">
-        <div>
-          <strong>{{ entry.category }}</strong>
-          <small>{{ entry.entry_date.strftime('%Y-%m-%d') }}{% if entry.note %} · {{ entry.note }}{% endif %}</small>
-        </div>
-        <span>{{ '+' if entry.kind == 'income' else '-' }}¥{{ '%.2f'|format(entry.amount) }}</span>
+    <h2>预算提醒</h2>
+    {% for row in budget_rows %}
+    <div class="entry-row {% if row.warning %}expense{% else %}income{% endif %}">
+      <div>
+        <strong>{{ row.category }}</strong>
+        <small>预算 ¥{{ '%.2f'|format(row.limit_amount) }} · 已用 ¥{{ '%.2f'|format(row.spent) }} · 使用率 {{ '%.1f'|format(row.usage) }}%</small>
       </div>
-      {% else %}
-      <div class="empty">本月暂无记账记录。</div>
-      {% endfor %}
+      <span>{{ '警报' if row.warning else '正常' }}</span>
     </div>
+    {% else %}
+    <div class="empty">暂无预算提醒，点击下方新增预算。</div>
+    {% endfor %}
+  </section>
+</div>
+
+<div class="finance-layout" style="margin-top: 22px;">
+  <section class="panel-block">
+    <h2>收入 / 支出 / 资产 / 负债四张表</h2>
+    <div class="balance-split">
+      <div class="mini-balance-card">
+        <h4>收入表</h4>
+        {% for item in income_entries[:5] %}
+        <div class="panel-item"><span>{{ item.category }}</span><strong>¥{{ '%.2f'|format(item.amount) }}</strong></div>
+        {% else %}<div class="empty">暂无收入</div>{% endfor %}
+      </div>
+      <div class="mini-balance-card">
+        <h4>支出表</h4>
+        {% for item in expense_entries[:5] %}
+        <div class="panel-item"><span>{{ item.category }}</span><strong>¥{{ '%.2f'|format(item.amount) }}</strong></div>
+        {% else %}<div class="empty">暂无支出</div>{% endfor %}
+      </div>
+    </div>
+    <div class="balance-split" style="margin-top: 12px;">
+      <div class="mini-balance-card">
+        <h4>资产表</h4>
+        {% for item in asset_entries[:5] %}
+        <div class="panel-item"><span>{{ item.category }}</span><strong>¥{{ '%.2f'|format(item.amount) }}</strong></div>
+        {% else %}<div class="empty">暂无资产</div>{% endfor %}
+      </div>
+      <div class="mini-balance-card">
+        <h4>负债表</h4>
+        {% for item in liability_entries[:5] %}
+        <div class="panel-item"><span>{{ item.category }}</span><strong>¥{{ '%.2f'|format(item.amount) }}</strong></div>
+        {% else %}<div class="empty">暂无负债</div>{% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <section class="panel-block">
+    <h2>月度目标</h2>
+    {% for row in target_rows %}
+    <div class="entry-row {% if row.progress >= 100 %}income{% else %}expense{% endif %}">
+      <div>
+        <strong>{{ row.name }}</strong>
+        <small>{{ row.target_type }}：目标 ¥{{ '%.2f'|format(row.target_amount) }} · 实际 ¥{{ '%.2f'|format(row.actual) }} · 进度 {{ '%.1f'|format(row.progress) }}%</small>
+      </div>
+      <span>{{ '达成' if row.progress >= 100 else '进行中' }}</span>
+    </div>
+    {% else %}
+    <div class="empty">暂无月度目标，点击下方新增目标。</div>
+    {% endfor %}
+  </section>
+</div>
+
+<div class="finance-layout" style="margin-top: 22px;">
+  <section class="panel-block">
+    <h2>新增预算提醒</h2>
+    <form method="post" action="{{ url_for('finance_accounting_add_budget') }}" class="finance-form">
+      <div class="finance-grid">
+        <label>月份<input type="month" name="month" value="{{ month }}" required></label>
+        <label>类别<input type="text" name="category" placeholder="餐饮、住房、教育" required></label>
+        <label>预算金额<input type="number" name="limit_amount" step="0.01" min="0.01" required></label>
+        <label>提醒阈值(%)<input type="number" name="alert_threshold" step="1" min="1" max="100" value="80" required></label>
+      </div>
+      <label>备注<textarea name="note" rows="2" placeholder="预算说明"></textarea></label>
+      <button class="button primary" type="submit">保存预算提醒</button>
+    </form>
+  </section>
+
+  <section class="panel-block">
+    <h2>新增月度目标</h2>
+    <form method="post" action="{{ url_for('finance_accounting_add_target') }}" class="finance-form">
+      <div class="finance-grid">
+        <label>月份<input type="month" name="month" value="{{ month }}" required></label>
+        <label>目标名称<input type="text" name="name" value="本月目标" required></label>
+        <label>目标类型<select name="target_type">
+          <option value="savings">储蓄</option>
+          <option value="income">收入</option>
+          <option value="expense">支出</option>
+          <option value="asset">资产</option>
+          <option value="liability">负债</option>
+        </select></label>
+        <label>目标金额<input type="number" name="target_amount" step="0.01" min="0.01" required></label>
+      </div>
+      <label>备注<textarea name="note" rows="2" placeholder="目标说明"></textarea></label>
+      <button class="button primary" type="submit">保存月度目标</button>
+    </form>
   </section>
 </div>
 {% endblock %}
