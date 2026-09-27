@@ -663,6 +663,8 @@ def schedule():
         if not start_at:
             flash("请填写开始时间", "error")
         else:
+            if not end_at or end_at <= start_at:
+                end_at = start_at + timedelta(minutes=30)
             item = Schedule(title=request.form["title"].strip(), start_at=start_at, end_at=end_at, description=request.form.get("description", "").strip(), task_id=request.form.get("task_id", type=int) or None)
             db.session.add(item)
             db.session.commit()

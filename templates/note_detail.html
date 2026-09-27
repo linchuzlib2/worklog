@@ -23,6 +23,27 @@
     <button class="button primary large" type="submit">保存日程　→</button>
   </form>
 </dialog>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('#schedule-dialog input[name="start_at"]').forEach(function (startInput) {
+      const endInput = startInput.closest('form').querySelector('input[name="end_at"]');
+      if (!endInput) return;
+      const toDateTimeValue = function (date) {
+        return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      };
+      startInput.addEventListener('change', function () {
+        if (!startInput.value) return;
+        const start = new Date(startInput.value);
+        if (isNaN(start.getTime())) return;
+        const end = new Date(start.getTime() + 30 * 60 * 1000);
+        const currentEnd = endInput.value ? new Date(endInput.value) : null;
+        if (!currentEnd || currentEnd <= start) {
+          endInput.value = toDateTimeValue(end);
+        }
+      });
+    });
+  });
+</script>
 {% endblock %}
 {% block scripts %}<script>document.addEventListener('DOMContentLoaded', function () {
   var btn = document.getElementById('detail-polish-btn');
