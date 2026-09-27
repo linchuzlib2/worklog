@@ -304,7 +304,7 @@ def normalize_assignee_name(name):
 
 def finance_password_for(module_name):
     if module_name == "accounting":
-        return os.getenv("ACCOUNTING_PASSWORD", "changeme-accounting")
+        return os.getenv("ACCOUNTING_PASSWORD", "334186")
     return ""
 
 
@@ -487,6 +487,46 @@ def finance_accounting():
     income = sum(item.amount for item in entries if item.kind == "income")
     expense = sum(item.amount for item in entries if item.kind == "expense")
     balance = income - expense
+
+    category_totals = {}
+    for item in entries:
+        category_totals[item.category] = category_totals.get(item.category, 0.0) + (item.amount if item.kind == "expense" else -item.amount)
+    category_rows = [
+        {"category": category, "amount": abs(amount), "kind": "expense" if amount > 0 else "income"}
+        for category, amount in sorted(category_totals.items(), key=lambda item: abs(item[1]), reverse=True)
+    ]
+
+    trend_rows = []
+    for offset in range(6):
+        year = selected_date.year
+        month_index = selected_date.month - offset
+        while month_index <= 0:
+            year -= 1
+            month_index += 12
+        while month_index > 12:
+            year += 1
+            month_index -= 12
+        month_label = f"{year}-{month_index:02d}"
+        month_start = date(year, month_index, 1)
+        next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+        month_entries = FinanceEntry.query.filter(FinanceEntry.entry_date >= month_start, FinanceEntry.entry_date < next_month).all()
+        month_income = sum(item.amount for item in month_entries if item.kind == "income")
+        month_expense = sum(item.amount for item in month_entries if item.kind == "expense")
+        trend_rows.append({
+            "label": month_label,
+            "income": month_income,
+            "expense": month_expense,
+            "balance": month_income - month_expense,
+        })
+    trend_rows.reverse()
+
+    net_flow = income - expense
+    month_status = "正常" if net_flow >= 0 else "风险"
+    if expense and income:
+        savings_rate = max(0.0, min(100.0, (net_flow / income) * 100 if income else 0))
+    else:
+        savings_rate = 0.0
+
     return render_template(
         "finance_accounting.html",
         entries=entries,
@@ -496,6 +536,11 @@ def finance_accounting():
         balance=balance,
         selected_date=selected_date,
         today=today,
+        category_rows=category_rows,
+        trend_rows=trend_rows,
+        month_status=month_status,
+        savings_rate=savings_rate,
+        net_flow=net_flow,
     )
 
 

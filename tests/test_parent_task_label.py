@@ -88,13 +88,14 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
 
     def test_accounting_view_is_available_after_login(self):
         client = app.test_client()
-        login_response = client.post('/finance/login', data={'module': 'accounting', 'password': 'changeme-accounting'}, follow_redirects=False)
+        login_response = client.post('/finance/login', data={'module': 'accounting', 'password': '334186'}, follow_redirects=False)
         self.assertIn(login_response.status_code, (200, 302))
 
         response = client.get('/finance/accounting')
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn('个人记账', html)
+        self.assertIn('现金流', html)
 
 
 if __name__ == '__main__':

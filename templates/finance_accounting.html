@@ -19,9 +19,38 @@
   <div class="finance-card"><span>本月收入</span><strong>¥{{ '%.2f'|format(income) }}</strong></div>
   <div class="finance-card"><span>本月支出</span><strong>¥{{ '%.2f'|format(expense) }}</strong></div>
   <div class="finance-card accent"><span>结余</span><strong>¥{{ '%.2f'|format(balance) }}</strong></div>
+  <div class="finance-card"><span>净现金流</span><strong>¥{{ '%.2f'|format(net_flow) }}</strong></div>
 </div>
 
 <div class="finance-layout">
+  <section class="panel-block">
+    <h2>现金流概况</h2>
+    <div class="balance-split">
+      <div class="mini-balance-card">
+        <h4>现金流状态</h4>
+        <strong>{{ month_status }}</strong>
+        <div class="panel-tag balance">储蓄率 {{ '%.1f'|format(savings_rate) }}%</div>
+      </div>
+      <div class="mini-balance-card">
+        <h4>最近 6 个月</h4>
+        <strong>¥{{ '%.2f'|format(trend_rows[-1].balance if trend_rows else 0) }}</strong>
+        <div class="panel-tag active">月度结余</div>
+      </div>
+    </div>
+
+    <div class="compact-toolbar" style="margin-top: 18px;">
+      <h3 style="margin: 0 0 12px; font-size: 14px;">分类占比</h3>
+      {% for row in category_rows[:6] %}
+      <div class="panel-item">
+        <span>{{ row.category }}</span>
+        <strong>{{ '+' if row.kind == 'income' else '-' }}¥{{ '%.2f'|format(row.amount) }}</strong>
+      </div>
+      {% else %}
+      <div class="empty">暂无分类数据，先记录一笔收支即可。</div>
+      {% endfor %}
+    </div>
+  </section>
+
   <section class="panel-block">
     <h2>新增记账</h2>
     <form method="post" action="{{ url_for('finance_accounting_add_entry') }}" class="finance-form">
@@ -34,6 +63,25 @@
       <label>备注<textarea name="note" rows="3" placeholder="说明用途或来源"></textarea></label>
       <button class="button primary" type="submit">保存到记账本</button>
     </form>
+  </section>
+</div>
+
+<div class="finance-layout" style="margin-top: 22px;">
+  <section class="panel-block">
+    <h2>月度现金流趋势</h2>
+    <div class="entry-list">
+      {% for row in trend_rows %}
+      <div class="entry-row {% if row.balance >= 0 %}income{% else %}expense{% endif %}">
+        <div>
+          <strong>{{ row.label }}</strong>
+          <small>收入 ¥{{ '%.2f'|format(row.income) }} · 支出 ¥{{ '%.2f'|format(row.expense) }}</small>
+        </div>
+        <span>{{ '+' if row.balance >= 0 else '-' }}¥{{ '%.2f'|format(row.balance|abs) }}</span>
+      </div>
+      {% else %}
+      <div class="empty">暂无月度趋势记录。</div>
+      {% endfor %}
+    </div>
   </section>
 
   <section class="panel-block">
