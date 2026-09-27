@@ -81,51 +81,6 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         self.assertEqual(child.status, 'done')
         self.assertEqual(grandchild.status, 'done')
 
-    def test_finance_modules_require_password(self):
-        client = app.test_client()
-        response = client.get('/finance/accounting')
-        self.assertIn(response.status_code, (302, 401))
-
-    def test_accounting_view_is_available_after_login(self):
-        client = app.test_client()
-        login_response = client.post('/finance/login', data={'module': 'accounting', 'password': '334186'}, follow_redirects=False)
-        self.assertIn(login_response.status_code, (200, 302))
-
-        response = client.get('/finance/accounting')
-        self.assertEqual(response.status_code, 200)
-        html = response.get_data(as_text=True)
-        self.assertIn('个人记账', html)
-        self.assertIn('现金流', html)
-
-    def test_monthly_cashflow_and_freedom_ratio_are_calculated(self):
-        client = app.test_client()
-        client.post('/finance/login', data={'module': 'accounting', 'password': '334186'}, follow_redirects=False)
-
-        client.post('/finance/accounting/entry', data={
-            'category': '租金',
-            'entry_group': 'asset',
-            'amount': '8000',
-            'note': '房租收益',
-        }, follow_redirects=False)
-        client.post('/finance/accounting/entry', data={
-            'category': '房贷',
-            'entry_group': 'liability',
-            'amount': '2000',
-            'note': '房贷支出',
-        }, follow_redirects=False)
-        client.post('/finance/accounting/entry', data={
-            'category': '生活费',
-            'entry_group': 'expense',
-            'amount': '4000',
-            'note': '月度生活消费',
-        }, follow_redirects=False)
-
-        response = client.get('/finance/accounting')
-        self.assertEqual(response.status_code, 200)
-        html = response.get_data(as_text=True)
-        self.assertIn('被动现金流', html)
-        self.assertIn('财务自由比例', html)
-        self.assertIn('150.0%', html)
 
 
 if __name__ == '__main__':

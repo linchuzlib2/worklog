@@ -1,5 +1,4 @@
 import csv
-import hmac
 import json
 import os
 import re
@@ -102,16 +101,6 @@ class Schedule(db.Model):
     completed = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     task = db.relationship("Task", backref=db.backref("schedules", order_by="Schedule.start_at"))
-
-
-class FinanceEntry(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    entry_date = db.Column(db.Date, nullable=False)
-    category = db.Column(db.String(120), nullable=False)
-    kind = db.Column(db.String(20), nullable=False)
-    amount = db.Column(db.Float, nullable=False, default=0.0)
-    note = db.Column(db.Text, default="")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
 class KnowledgeDoc(db.Model):
@@ -302,24 +291,6 @@ def normalize_assignee_name(name):
     return (name or "").strip()
 
 
-def finance_password_for(module_name):
-    if module_name == "accounting":
-        return os.getenv("ACCOUNTING_PASSWORD", "334186")
-    return ""
-
-
-def verify_finance_password(module_name, raw_password):
-    value = (raw_password or "").strip()
-    expected = finance_password_for(module_name)
-    return bool(expected) and hmac.compare_digest(value, expected)
-
-
-def require_finance_auth(module_name):
-    if not session.get(f"finance_{module_name}_authorized"):
-        return False
-    return True
-
-
 def collect_assignee_ids(task):
     ids = set()
     if task is None:
@@ -446,76 +417,6 @@ def inject_counts():
     return {"pending_count": Task.query.filter(Task.status != "done").count() if db.engine else 0, "oss_enabled": storage.enabled, "now": datetime.utcnow(), "timedelta": timedelta, "root_task_for": root_task_for}
 
 
-@app.get("/finance/login")
-def finance_login():
-    module = request.args.get("module", "accounting")
-    if module != "accounting":
-        module = "accounting"
-    return render_template("finance_login.html", module=module)
-
-
-@app.post("/finance/login")
-def finance_login_submit():
-    module = request.form.get("module", "accounting")
-    password = request.form.get("password", "")
-    if verify_finance_password(module, password):
-        session[f"finance_{module}_authorized"] = True
-        flash("已登录", "success")
-        return redirect(url_for(f"finance_{module}"))
-    flash("密码错误", "error")
-    return redirect(url_for("finance_login", module=module))
-
-
-@app.post("/finance/logout")
-def finance_logout():
-    module = request.form.get("module", "accounting")
-    session.pop(f"finance_{module}_authorized", None)
-    flash("已退出登录", "success")
-    return redirect(url_for("finance_login", module=module))
-
-
-@app.get("/finance/accounting")
-def finance_accounting():
-    if not require_finance_auth("accounting"):
-        return redirect(url_for("finance_login", module="accounting"))
-    today = date.today()
-    month = request.args.get("month") or today.strftime("%Y-%m")
-    selected_date = datetime.strptime(month + "-01", "%Y-%m-%d").date() if month else today
-    start = selected_date.replace(day=1)
-    end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
-    entries = FinanceEntry.query.filter(FinanceEntry.entry_date >= start, FinanceEntry.entry_date < end).order_by(FinanceEntry.entry_date.desc(), FinanceEntry.created_at.desc()).all()
-    income = sum(item.amount for item in entries if item.kind == "income")
-    expense = sum(item.amount for item in entries if item.kind == "expense")
-    balance = income - expense
-    return render_template(
-        "finance_accounting.html",
-        entries=entries,
-        month=month,
-        income=income,
-        expense=expense,
-        balance=balance,
-        selected_date=selected_date,
-        today=today,
-    )
-
-
-@app.post("/finance/accounting/entry")
-def finance_accounting_add_entry():
-    if not require_finance_auth("accounting"):
-        return redirect(url_for("finance_login", module="accounting"))
-    entry_date = request.form.get("entry_date") or date.today().isoformat()
-    category = (request.form.get("category") or request.form.get("item") or "其他").strip() or "其他"
-    kind = request.form.get("kind") or "expense"
-    amount = float(request.form.get("amount") or 0)
-    note = request.form.get("note") or ""
-    if amount <= 0:
-        flash("金额必须大于 0", "error")
-        return redirect(url_for("finance_accounting"))
-    db.session.add(FinanceEntry(entry_date=parse_date(entry_date), category=category, kind=kind, amount=amount, note=note))
-    db.session.commit()
-    sync_database()
-    flash("记账已保存", "success")
-    return redirect(url_for("finance_accounting"))
 
 
 @app.route("/")
