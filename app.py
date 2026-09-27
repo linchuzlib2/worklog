@@ -540,6 +540,11 @@ def finance_accounting():
     asset_entries = [item for item in entries if finance_entry_group(item.kind if item.kind else item.entry_group) == "asset"]
     liability_entries = [item for item in entries if finance_entry_group(item.kind if item.kind else item.entry_group) == "liability"]
 
+    asset_cashflow = sum(item.amount for item in asset_entries)
+    liability_cashflow = sum(item.amount for item in liability_entries)
+    passive_cashflow = asset_cashflow - liability_cashflow
+    freedom_ratio = (passive_cashflow / expense * 100) if expense else 0.0
+
     category_totals = {}
     for item in expense_entries:
         category_totals[item.category] = category_totals.get(item.category, 0.0) + item.amount
@@ -622,6 +627,8 @@ def finance_accounting():
         {"label": "收入", "value": income, "kind": "income"},
         {"label": "支出", "value": expense, "kind": "expense"},
         {"label": "净现金流", "value": net_flow, "kind": "balance"},
+        {"label": "被动现金流", "value": passive_cashflow, "kind": "balance"},
+        {"label": "财务自由比例", "value": freedom_ratio, "kind": "income"},
         {"label": "净资产", "value": asset_total - liability_total, "kind": "asset"},
     ]
 
@@ -645,6 +652,8 @@ def finance_accounting():
         month_status=month_status,
         savings_rate=savings_rate,
         net_flow=net_flow,
+        passive_cashflow=passive_cashflow,
+        freedom_ratio=freedom_ratio,
         report_cards=report_cards,
         budgets=budgets,
         budget_rows=budget_rows,
@@ -660,6 +669,7 @@ def finance_accounting_add_entry():
     entry_date = request.form.get("entry_date") or date.today().isoformat()
     category = (request.form.get("category") or request.form.get("item") or "其他").strip() or "其他"
     selected_group = request.form.get("entry_group") or request.form.get("kind") or "expense"
+    # 资产与负债的现金流是持续的每月流动，不要求每笔都记录精确日期。
     flow_group = finance_entry_group(selected_group)
     amount = float(request.form.get("amount") or 0)
     note = request.form.get("note") or ""

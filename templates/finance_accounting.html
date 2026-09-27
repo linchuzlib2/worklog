@@ -54,7 +54,7 @@
     <h2>新增记账</h2>
     <form method="post" action="{{ url_for('finance_accounting_add_entry') }}" class="finance-form">
       <div class="finance-grid">
-        <label>日期<input type="date" name="entry_date" value="{{ selected_date.isoformat() if selected_date else today.isoformat() }}" required></label>
+        <label>日期<input type="date" name="entry_date" value="{{ selected_date.isoformat() if selected_date else today.isoformat() }}"></label>
         <label>类别<input type="text" name="category" placeholder="例如：餐饮、薪资、房产" required></label>
         <label>类型<select name="entry_group">
           <option value="expense">支出</option>
@@ -65,6 +65,7 @@
         <label>金额<input type="number" name="amount" step="0.01" min="0.01" required></label>
       </div>
       <label>备注<textarea name="note" rows="3" placeholder="说明用途或来源"></textarea></label>
+      <p class="subtitle" style="margin-top: 12px; color: #7d8786;">说明：资产与负债的现金流按月持续流动，日期可不必精确记录，系统会按月累计计算。</p>
       <button class="button primary" type="submit">保存到现金流表</button>
     </form>
   </section>
@@ -105,6 +106,22 @@
 </div>
 
 <div class="finance-layout" style="margin-top: 22px;">
+  <section class="panel-block">
+    <h2>被动现金流与财务自由比例</h2>
+    <div class="balance-split">
+      <div class="mini-balance-card">
+        <h4>被动现金流</h4>
+        <strong>¥{{ '%.2f'|format(passive_cashflow) }}</strong>
+        <div class="panel-tag active">资产月流 - 负债月流</div>
+      </div>
+      <div class="mini-balance-card">
+        <h4>财务自由比例</h4>
+        <strong>{{ '%.1f'|format(freedom_ratio) }}%</strong>
+        <div class="panel-tag balance">被动现金流 ÷ 月消费支出</div>
+      </div>
+    </div>
+  </section>
+
   <section class="panel-block">
     <h2>收入 / 支出 / 资产 / 负债四张表</h2>
     <div class="balance-split">
