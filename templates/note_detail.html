@@ -42,8 +42,9 @@
           endInput.value = toDateTimeValue(end);
         }
       };
-      startInput.addEventListener('input', syncEndFromStart);
-      startInput.addEventListener('change', syncEndFromStart);
+      ['input', 'change', 'blur'].forEach(function (eventName) {
+        startInput.addEventListener(eventName, syncEndFromStart);
+      });
     });
   });
 </script>
@@ -98,10 +99,19 @@
     hideSelBtn();
     titleInput.value = selectedText.slice(0, 200);
     var startInput = dialog.querySelector('input[name="start_at"]');
+    var endInput = dialog.querySelector('input[name="end_at"]');
     if (startInput && !startInput.value) {
       var now = new Date();
       now.setMinutes(now.getMinutes() < 30 ? 30 : 60, 0, 0);
       startInput.value = now.toISOString().slice(0, 16);
+    }
+    if (startInput && endInput && startInput.value) {
+      var start = new Date(startInput.value);
+      if (!Number.isNaN(start.getTime())) {
+        var end = new Date(start.getTime() + 30 * 60 * 1000);
+        var pad = function (value) { return String(value).padStart(2, '0'); };
+        endInput.value = end.getFullYear() + '-' + pad(end.getMonth() + 1) + '-' + pad(end.getDate()) + 'T' + pad(end.getHours()) + ':' + pad(end.getMinutes());
+      }
     }
     dialog.showModal();
   });

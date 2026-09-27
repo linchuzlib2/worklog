@@ -91,8 +91,9 @@ if (scheduleDialog) {
       endInput.value = toDateTimeValue(end);
     }
   };
-  startInput.addEventListener('input', syncEndFromStart);
-  startInput.addEventListener('change', syncEndFromStart);
+  ['input', 'change', 'blur'].forEach((eventName) => {
+    startInput.addEventListener(eventName, syncEndFromStart);
+  });
   const openScheduleDialog = (date, time) => {
     const start = new Date(`${date}T${time}:00`);
     startInput.value = toDateTimeValue(start);

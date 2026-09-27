@@ -53,8 +53,9 @@
           endInput.value = toDateTimeValue(end);
         }
       };
-      startInput.addEventListener('input', syncEndFromStart);
-      startInput.addEventListener('change', syncEndFromStart);
+      ['input', 'change', 'blur'].forEach(function (eventName) {
+        startInput.addEventListener(eventName, syncEndFromStart);
+      });
     });
   });
 </script>
