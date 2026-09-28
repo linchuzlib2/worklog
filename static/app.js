@@ -28,6 +28,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
               }
               const file = input.files[0];
+              if (file.size > 25 * 1024 * 1024) {
+                alert('图片不能超过 25 MB');
+                document.body.removeChild(input);
+                return;
+              }
               const formData = new FormData();
               formData.append('file', file);
               const noteIdInput = editor.closest('form').querySelector('input[name="note_id"]');
@@ -40,9 +45,11 @@ document.addEventListener('DOMContentLoaded', () => {
               quill.insertText(range.index, placeholder);
               try {
                 const response = await fetch('/attachments/upload-image', { method: 'POST', body: formData });
-                const data = await response.json();
+                const contentType = response.headers.get('content-type') || '';
+                const data = contentType.includes('application/json') ? await response.json() : {};
                 if (!response.ok || data.error) {
-                  throw new Error(data.error || '上传失败');
+                  const message = data.error || (response.status === 413 ? '图片超过 25 MB 限制' : `服务器返回错误 (${response.status})，请检查 OSS 配置或网络后重试`);
+                  throw new Error(message);
                 }
                 quill.deleteText(range.index, placeholder.length);
                 quill.insertEmbed(range.index, 'image', data.url, 'user');
