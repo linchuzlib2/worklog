@@ -19,7 +19,7 @@
       <a class="nav-link {% if request.endpoint in ['task_list', 'task_board'] %}active{% endif %}" href="{{ url_for('task_list') }}"><span>☑</span>清单</a>
       <a class="nav-link {% if request.endpoint == 'task_board' %}active{% endif %}" href="{{ url_for('task_board') }}"><span>▦</span>看板</a>
       <a class="nav-link {% if request.endpoint == 'task_assignees' %}active{% endif %}" href="{{ url_for('task_assignees') }}"><span>◎</span>经办人</a>
-      <a class="nav-link {% if request.endpoint in ['new_note', 'edit_note', 'note_detail'] %}active{% endif %}" href="{{ url_for('index') }}#notes"><span>▤</span>笔记</a>
+      <a class="nav-link {% if request.endpoint in ['note_list', 'new_note', 'edit_note', 'note_detail'] %}active{% endif %}" href="{{ url_for('note_list') }}"><span>▤</span>笔记</a>
       <a class="nav-link {% if request.endpoint in ['file_manager', 'create_folder', 'move_file', 'delete_file'] %}active{% endif %}" href="{{ url_for('file_manager') }}"><span>⌑</span>文件</a>
       <a class="nav-link {% if request.endpoint in ['schedule', 'delete_schedule'] %}active{% endif %}" href="{{ url_for('schedule') }}"><span>◷</span>日程</a>
       <a class="nav-link {% if request.endpoint == 'global_search' %}active{% endif %}" href="{{ url_for('global_search') }}"><span>⌕</span>搜索</a>

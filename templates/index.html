@@ -60,6 +60,6 @@
       {% endfor %}
     </div>
   </section>
-  <section id="notes" class="dashboard-column"><div class="section-title"><h2>最近笔记</h2><a href="{{ url_for('new_note') }}">新建笔记　→</a></div><div class="note-list">{% for note in notes %}<a href="{{ url_for('note_detail', note_id=note.id) }}" class="note-card"><div class="note-icon">✦</div><div><h3>{{ note.title }}</h3><p>{{ note.content|striptags|truncate(100) or '空白笔记' }}</p><small>{{ note.updated_at.strftime('%Y-%m-%d %H:%M') }}{% if note.task %} · {{ note.task.title }}{% endif %}</small></div></a>{% else %}<div class="empty">你的工作灵感会出现在这里。</div>{% endfor %}</div></section>
+  <section id="notes" class="dashboard-column"><div class="section-title"><h2>最近笔记</h2><div class="title-links"><a href="{{ url_for('note_list') }}">全部笔记　→</a><a href="{{ url_for('new_note') }}">新建　→</a></div></div><div class="note-list">{% for note in notes %}<a href="{{ url_for('note_detail', note_id=note.id) }}" class="note-card"><div class="note-icon">✦</div><div><h3>{{ note.title }}</h3><p>{{ note.content|striptags|truncate(100) or '空白笔记' }}</p><small>{{ note.updated_at.strftime('%Y-%m-%d %H:%M') }}{% if note.task %} · {{ note.task.title }}{% endif %}</small></div></a>{% else %}<div class="empty">你的工作灵感会出现在这里。</div>{% endfor %}</div></section>
 </div>
 {% endblock %}

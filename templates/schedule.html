@@ -14,7 +14,7 @@
       <div class="calendar-time">{{ slot }}</div>
       {% for day in days %}<div class="calendar-slot" data-date="{{ day.strftime('%Y-%m-%d') }}" data-time="{{ slot }}" role="button" tabindex="0">
         {% for item in items if item.start_at.strftime('%Y-%m-%d') == day.strftime('%Y-%m-%d') and item.start_at.strftime('%H') == slot[:2] and ('00' if item.start_at.minute < 30 else '30') == slot[3:] %}
-        <article class="schedule-card {% if item.completed %}completed{% endif %}"><form method="post" action="{{ url_for('update_schedule_status', schedule_id=item.id) }}"><input type="hidden" name="completed" value="{{ '0' if item.completed else '1' }}"><button class="check {% if item.completed %}checked{% endif %}" title="切换完成状态">{% if item.completed %}✓{% endif %}</button></form><time>{{ item.start_at.strftime('%H:%M') }}{% if item.end_at %} - {{ item.end_at.strftime('%H:%M') }}{% endif %}</time><strong>{{ item.title }}</strong>{% if item.task %}<a href="{{ url_for('task_detail', task_id=item.task.id) }}">✓ {{ item.task.title }}</a>{% endif %}{% if item.description %}<p>{{ item.description }}</p>{% endif %}<small>{{ '已完成' if item.completed else '待处理' }}</small><form method="post" action="{{ url_for('delete_schedule', schedule_id=item.id) }}"><button class="icon-button" title="删除日程">×</button></form></article>
+        <article class="schedule-card {% if item.completed %}completed{% endif %}" draggable="true" data-schedule-id="{{ item.id }}"><form method="post" action="{{ url_for('update_schedule_status', schedule_id=item.id) }}"><input type="hidden" name="completed" value="{{ '0' if item.completed else '1' }}"><button class="check {% if item.completed %}checked{% endif %}" title="切换完成状态">{% if item.completed %}✓{% endif %}</button></form><time>{{ item.start_at.strftime('%H:%M') }}{% if item.end_at %} - {{ item.end_at.strftime('%H:%M') }}{% endif %}</time><strong>{{ item.title }}</strong>{% if item.task %}<a href="{{ url_for('task_detail', task_id=item.task.id) }}">✓ {{ item.task.title }}</a>{% endif %}{% if item.description %}<p>{{ item.description }}</p>{% endif %}<small>{{ '已完成' if item.completed else '待处理' }}</small><form method="post" action="{{ url_for('delete_schedule', schedule_id=item.id) }}"><button class="icon-button" title="删除日程">×</button></form></article>
         {% endfor %}
       </div>{% endfor %}
       {% endfor %}
@@ -55,6 +55,59 @@
       };
       ['input', 'change', 'blur'].forEach(function (eventName) {
         startInput.addEventListener(eventName, syncEndFromStart);
+      });
+    });
+
+    // ---- 日程卡片拖拽到任意时间段 ----
+    var dragScheduleId = null;
+    document.querySelectorAll('.schedule-card[draggable="true"]').forEach(function (card) {
+      card.addEventListener('dragstart', function (event) {
+        dragScheduleId = card.dataset.scheduleId;
+        event.dataTransfer.setData('text/plain', dragScheduleId);
+        event.dataTransfer.effectAllowed = 'move';
+        setTimeout(function () { card.classList.add('dragging'); }, 0);
+      });
+      card.addEventListener('dragend', function () {
+        card.classList.remove('dragging');
+        document.querySelectorAll('.calendar-slot.drop-target').forEach(function (slot) {
+          slot.classList.remove('drop-target');
+        });
+        dragScheduleId = null;
+      });
+    });
+    document.querySelectorAll('.calendar-slot').forEach(function (slot) {
+      slot.addEventListener('dragover', function (event) {
+        if (!dragScheduleId) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        slot.classList.add('drop-target');
+      });
+      slot.addEventListener('dragleave', function () {
+        slot.classList.remove('drop-target');
+      });
+      slot.addEventListener('drop', async function (event) {
+        event.preventDefault();
+        slot.classList.remove('drop-target');
+        if (!dragScheduleId) return;
+        var date = slot.dataset.date;
+        var time = slot.dataset.time;
+        if (!date || !time) return;
+        var startAt = date + 'T' + time;
+        try {
+          var response = await fetch('/schedule/' + dragScheduleId + '/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ start_at: startAt })
+          });
+          if (response.ok) {
+            window.location.reload();
+          } else {
+            var data = await response.json().catch(function () { return {}; });
+            alert('日程移动失败：' + (data.error || response.status));
+          }
+        } catch (error) {
+          alert('日程移动失败：' + error.message);
+        }
       });
     });
   });

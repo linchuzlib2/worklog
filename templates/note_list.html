@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block title %}笔记清单{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div>
+    <p class="eyebrow">NOTES</p>
+    <h1>笔记清单</h1>
+    <p class="subtitle">所有工作笔记按更新时间倒序，支持按标题或正文筛选。</p>
+  </div>
+  <div class="top-actions">
+    <a class="button ghost" href="{{ url_for('new_note') }}">＋ 新建笔记</a>
+  </div>
+</section>
+
+<section class="toolbar compact-toolbar">
+  <form class="search" method="get" action="{{ url_for('note_list') }}">
+    <span>⌕</span>
+    <input name="q" value="{{ query }}" placeholder="搜索笔记标题或正文...">
+  </form>
+  <div class="filter-pills">
+    <a class="pill {% if not query %}selected{% endif %}" href="{{ url_for('note_list') }}">全部 ({{ total }})</a>
+  </div>
+</section>
+
+<div class="note-list-page">
+  {% if notes %}
+    {% for note in notes %}
+      <a class="note-list-card" href="{{ url_for('note_detail', note_id=note.id, q=query if query else '') }}" data-highlight>
+        <div class="note-list-main">
+          <div class="note-list-head">
+            <strong>{{ note.title }}</strong>
+            <small>{{ note.updated_at.strftime('%Y-%m-%d %H:%M') }}</small>
+          </div>
+          <p>{{ note.content|striptags|truncate(160) or '空白笔记' }}</p>
+          <div class="note-list-meta">
+            {% if note.task %}<span class="meta-badge">关联任务：{{ note.task.title }}</span>{% endif %}
+            {% if note.attachments %}<span class="meta-badge">{{ note.attachments|length }} 个附件</span>{% endif %}
+          </div>
+        </div>
+      </a>
+    {% endfor %}
+  {% else %}
+    <div class="empty">{% if query %}没有匹配「{{ query }}」的笔记。{% else %}还没有笔记，先创建一篇吧。{% endif %}</div>
+  {% endif %}
+</div>
+{% endblock %}

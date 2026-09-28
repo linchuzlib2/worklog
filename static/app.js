@@ -4,7 +4,61 @@ document.addEventListener('DOMContentLoaded', () => {
   const quill = new Quill(editor, {
     theme: 'snow',
     placeholder: '写下你的内容... ',
-    modules: { toolbar: [[{ header: [1, 2, 3, false] }], ['bold', 'italic', 'underline', 'strike'], [{ list: 'ordered' }, { list: 'bullet' }], ['blockquote', 'code-block', 'link'], ['clean']] }
+    modules: {
+      toolbar: {
+        container: [
+          [{ header: [1, 2, 3, false] }],
+          ['bold', 'italic', 'underline', 'strike'],
+          [{ list: 'ordered' }, { list: 'bullet' }],
+          ['blockquote', 'code-block', 'link'],
+          ['image'],
+          ['clean']
+        ],
+        handlers: {
+          image: function () {
+            const input = document.createElement('input');
+            input.setAttribute('type', 'file');
+            input.setAttribute('accept', 'image/*');
+            input.style.display = 'none';
+            document.body.appendChild(input);
+            input.click();
+            input.addEventListener('change', async () => {
+              if (!input.files || !input.files.length) {
+                document.body.removeChild(input);
+                return;
+              }
+              const file = input.files[0];
+              const formData = new FormData();
+              formData.append('file', file);
+              const noteIdInput = editor.closest('form').querySelector('input[name="note_id"]');
+              if (noteIdInput && noteIdInput.value) {
+                formData.append('note_id', noteIdInput.value);
+              }
+              const range = quill.getSelection(true) || { index: 0, length: 0 };
+              const placeholder = '图片上传中…';
+              quill.disable();
+              quill.insertText(range.index, placeholder);
+              try {
+                const response = await fetch('/attachments/upload-image', { method: 'POST', body: formData });
+                const data = await response.json();
+                if (!response.ok || data.error) {
+                  throw new Error(data.error || '上传失败');
+                }
+                quill.deleteText(range.index, placeholder.length);
+                quill.insertEmbed(range.index, 'image', data.url, 'user');
+                quill.setSelection(range.index + 1, 0);
+              } catch (error) {
+                quill.deleteText(range.index, placeholder.length);
+                alert('图片上传失败：' + error.message);
+              } finally {
+                quill.enable();
+                document.body.removeChild(input);
+              }
+            });
+          }
+        }
+      }
+    }
   });
   const form = editor.closest('form');
   form.addEventListener('submit', () => {
@@ -124,6 +178,7 @@ const highlightQuery = highlightRoot?.dataset.searchQuery || new URLSearchParams
 if (highlightQuery.trim()) {
   const escapedQuery = highlightQuery.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const matcher = new RegExp(escapedQuery, 'gi');
+  let firstMark = null;
   document.querySelectorAll('[data-highlight]').forEach((container) => {
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
       acceptNode: (node) => node.parentElement?.closest('mark, script, style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
@@ -141,6 +196,7 @@ if (highlightQuery.trim()) {
         fragment.append(text.slice(lastIndex, offset));
         const mark = document.createElement('mark');
         mark.textContent = match;
+        if (!firstMark) firstMark = mark;
         fragment.append(mark);
         lastIndex = offset + match.length;
         return match;
@@ -149,4 +205,9 @@ if (highlightQuery.trim()) {
       node.replaceWith(fragment);
     });
   });
+  // 跳到搜索结果中第一个关键字的位置
+  if (firstMark) {
+    firstMark.id = 'first-match';
+    firstMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 }

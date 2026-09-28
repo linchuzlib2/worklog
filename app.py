@@ -32,9 +32,12 @@ db = SQLAlchemy(app)
 
 ALLOWED_TAGS = set(bleach.sanitizer.ALLOWED_TAGS) | {
     "p", "br", "h1", "h2", "h3", "h4", "blockquote", "pre", "code",
-    "ul", "ol", "li", "strong", "em", "u", "s", "a"
+    "ul", "ol", "li", "strong", "em", "u", "s", "a", "img"
 }
-ALLOWED_ATTRIBUTES = {"a": ["href", "title", "target", "rel"]}
+ALLOWED_ATTRIBUTES = {
+    "a": ["href", "title", "target", "rel"],
+    "img": ["src", "alt", "title", "width", "height"],
+}
 
 
 class Assignee(db.Model):
@@ -271,6 +274,20 @@ def ask_knowledge(question):
 
 def sanitize_html(value):
     return bleach.clean(value or "", tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRIBUTES, protocols=["http", "https", "mailto"], strip=True)
+
+
+def link_note_image_attachments(content, note_id):
+    """把笔记正文中 <img src="/attachments/<id>/inline"> 引用的图片附件归属到本笔记。
+
+    - 新建笔记场景：先上传图片再保存时，图片 note_id 为空，这里统一关联；
+    - 编辑场景：保持引用关系，使附件随笔记 cascade 删除；
+    - 跨笔记复制：图片归属切换到最近一次保存它的笔记。
+    """
+    for match in re.finditer(r"/attachments/(\d+)/inline", content or ""):
+        attachment_id = int(match.group(1))
+        attachment = db.session.get(Attachment, attachment_id)
+        if attachment and attachment.note_id != note_id:
+            attachment.note_id = note_id
 
 
 def parse_date(value):
@@ -536,6 +553,19 @@ def index():
                            today_items=today_items, today_label=today.strftime("%m月%d日"))
 
 
+@app.get("/notes")
+def note_list():
+    """独立笔记清单页：支持按关键词筛选标题/正文，按更新时间倒序。"""
+    query = request.args.get("q", "").strip()
+    notes_query = Note.query
+    if query:
+        pattern = f"%{query}%"
+        notes_query = notes_query.filter(or_(Note.title.ilike(pattern), Note.content.ilike(pattern)))
+    notes = notes_query.order_by(Note.updated_at.desc()).all()
+    total = Note.query.count()
+    return render_template("note_list.html", notes=notes, query=query, total=total)
+
+
 @app.get("/tasks/list")
 def task_list():
     assignee_id = request.args.get("assignee_id", type=int)
@@ -703,6 +733,27 @@ def update_schedule_status(schedule_id):
     return redirect(request.referrer or url_for("schedule"))
 
 
+@app.post("/schedule/<int:schedule_id>/move")
+def move_schedule(schedule_id):
+    """拖拽日程到任意时间段：保留原时长，平移 start_at / end_at。"""
+    item = db.get_or_404(Schedule, schedule_id)
+    payload = request.get_json(silent=True) or request.form
+    new_start = parse_datetime(payload.get("start_at"))
+    if not new_start:
+        if request.is_json:
+            return jsonify({"error": "请提供 start_at"}), 400
+        flash("请提供开始时间", "error")
+        return redirect(request.referrer or url_for("schedule"))
+    duration = item.end_at - item.start_at if item.end_at else timedelta(minutes=30)
+    item.start_at = new_start
+    item.end_at = new_start + duration if item.end_at else None
+    db.session.commit()
+    sync_database()
+    if request.is_json:
+        return jsonify({"ok": True})
+    return redirect(request.referrer or url_for("schedule"))
+
+
 @app.route("/search")
 def global_search():
     query = request.args.get("q", "").strip()
@@ -799,6 +850,8 @@ def new_note():
         note = Note(title=request.form["title"].strip(), content=sanitize_html(request.form.get("content")), task_id=request.form.get("task_id", type=int) or None)
         db.session.add(note)
         db.session.commit()
+        link_note_image_attachments(note.content, note.id)
+        db.session.commit()
         sync_database()
         flash("笔记已保存", "success")
         return redirect(url_for("note_detail", note_id=note.id))
@@ -818,6 +871,8 @@ def edit_note(note_id):
         note.title = request.form["title"].strip()
         note.content = sanitize_html(request.form.get("content"))
         note.task_id = request.form.get("task_id", type=int) or None
+        db.session.commit()
+        link_note_image_attachments(note.content, note.id)
         db.session.commit()
         sync_database()
         flash("笔记已更新", "success")
@@ -1434,6 +1489,54 @@ def download_attachment(attachment_id):
         flash(f"附件读取失败：{error}", "error")
         return redirect(request.referrer or url_for("index"))
     return send_file(BytesIO(data), as_attachment=True, download_name=attachment.original_name, mimetype=attachment.content_type)
+
+
+@app.get("/attachments/<int:attachment_id>/inline")
+def inline_attachment(attachment_id):
+    """以 inline 方式返回附件，用于富文本中的 <img src="/attachments/<id>/inline">。"""
+    attachment = db.get_or_404(Attachment, attachment_id)
+    try:
+        data = storage.download(attachment.object_key)
+    except (BotoCoreError, ClientError) as error:
+        return jsonify({"error": str(error)}), 502
+    return send_file(BytesIO(data), mimetype=attachment.content_type, download_name=attachment.original_name)
+
+
+@app.post("/attachments/upload-image")
+def upload_image():
+    """富文本编辑器图片上传：返回 inline URL 供 <img src> 使用。
+
+    - 已保存笔记时带 note_id，立即归属；
+    - 新建未保存时 note_id 缺省，附件先为孤儿，保存笔记时由
+      link_note_image_attachments 统一回填。
+    """
+    if not storage.enabled:
+        return jsonify({"error": "附件上传需要先配置阿里云 OSS"}), 400
+    uploaded = request.files.get("file")
+    if not uploaded or not uploaded.filename:
+        return jsonify({"error": "请选择图片"}), 400
+    filename = uploaded.filename
+    safe_name = re.sub(r"[^\w.\- ]", "_", filename)[:180]
+    key = f"attachments/{uuid.uuid4().hex}-{safe_name}"
+    try:
+        uploaded.stream.seek(0)
+        uploaded_size = storage.upload(uploaded, key)
+    except (BotoCoreError, ClientError, RuntimeError) as error:
+        return jsonify({"error": f"图片上传失败：{error}"}), 502
+    note_id = request.form.get("note_id", type=int)
+    if note_id:
+        db.get_or_404(Note, note_id)
+    attachment = Attachment(
+        original_name=filename,
+        object_key=key,
+        content_type=uploaded.content_type or "application/octet-stream",
+        size=uploaded_size,
+        note_id=note_id,
+    )
+    db.session.add(attachment)
+    db.session.commit()
+    sync_database()
+    return jsonify({"url": url_for("inline_attachment", attachment_id=attachment.id), "id": attachment.id})
 
 
 @app.get("/health")
