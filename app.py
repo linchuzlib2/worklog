@@ -1523,6 +1523,9 @@ def upload_image():
         uploaded_size = storage.upload(uploaded, key)
     except (BotoCoreError, ClientError, RuntimeError) as error:
         return jsonify({"error": f"图片上传失败：{error}"}), 502
+    except Exception as error:
+        app.logger.exception("Unexpected image upload failure")
+        return jsonify({"error": f"图片上传失败：{error}"}), 500
     note_id = request.form.get("note_id", type=int)
     if note_id:
         db.get_or_404(Note, note_id)
@@ -1534,9 +1537,24 @@ def upload_image():
         note_id=note_id,
     )
     db.session.add(attachment)
-    db.session.commit()
-    sync_database()
-    return jsonify({"url": url_for("inline_attachment", attachment_id=attachment.id), "id": attachment.id})
+    try:
+        db.session.commit()
+    except Exception as error:
+        db.session.rollback()
+        app.logger.exception("Failed to save uploaded image attachment")
+        try:
+            storage.delete(key)
+        except Exception:
+            app.logger.exception("Failed to remove image after attachment save failure")
+        return jsonify({"error": f"图片已上传到 OSS，但附件记录保存失败：{error}"}), 500
+
+    response = {"url": url_for("inline_attachment", attachment_id=attachment.id), "id": attachment.id}
+    try:
+        sync_database()
+    except Exception as error:
+        app.logger.exception("Failed to sync database after image upload")
+        response["warning"] = f"图片已上传，但数据库备份同步失败：{error}。请检查 Render 日志中的 OSS 错误。"
+    return jsonify(response)
 
 
 @app.get("/health")
