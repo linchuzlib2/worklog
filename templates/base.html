@@ -4,9 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}工作簿{% endblock %} · 工作簿</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=static_version('style.css')) }}">
   {% block head %}{% endblock %}
 </head>
@@ -32,7 +29,7 @@
     {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-stack">{% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
     {% block content %}{% endblock %}
   </main>
-  <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+  {% if request.endpoint in ['new_note', 'edit_note'] %}<script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>{% endif %}
   <script src="{{ url_for('static', filename='app.js', v=static_version('app.js')) }}"></script>
   <div id="schedule-reminder" class="reminder-popup" hidden>
     <div class="reminder-card">
