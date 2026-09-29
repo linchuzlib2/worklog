@@ -20,8 +20,6 @@ document.addEventListener('DOMContentLoaded', () => {
             input.setAttribute('type', 'file');
             input.setAttribute('accept', '.png,.jpg,.jpeg,.gif,.webp,.bmp,.svg,.ico,image/*');
             input.style.display = 'none';
-            document.body.appendChild(input);
-            input.click();
             input.addEventListener('change', async () => {
               if (!input.files || !input.files.length) {
                 document.body.removeChild(input);
@@ -62,6 +60,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.body.removeChild(input);
               }
             });
+            document.body.appendChild(input);
+            input.click();
           }
         }
       }
