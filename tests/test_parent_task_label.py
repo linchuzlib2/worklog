@@ -1,10 +1,12 @@
 import unittest
 from datetime import datetime, timedelta
 from io import BytesIO
+from unittest.mock import patch
 
 from openpyxl import Workbook
+from sqlalchemy import event
 
-from app import KnowledgeDoc, app, Assignee, Schedule, db, Task
+from app import KnowledgeDoc, app, Assignee, Schedule, db, mindmap_tree_data, Task
 
 
 class DashboardParentTaskLabelTestCase(unittest.TestCase):
@@ -47,6 +49,40 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn('洗车', html)
         self.assertIn('现场洗车排水', html)
+
+    def test_mindmap_create_returns_without_waiting_for_database_backup(self):
+        with patch('app.schedule_database_sync') as schedule_sync, patch('app.sync_database') as sync_database:
+            response = app.test_client().post(
+                '/mindmap/tasks/create',
+                json={'title': '快速创建', 'parent_id': ''},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()['id'])
+        schedule_sync.assert_called_once_with()
+        sync_database.assert_not_called()
+
+    def test_mindmap_tree_uses_batched_relationship_queries(self):
+        root = Task(title='项目根节点')
+        children = [Task(title=f'节点 {index}', parent=root) for index in range(30)]
+        db.session.add_all([root, *children])
+        db.session.commit()
+
+        select_statements = []
+
+        def count_selects(connection, cursor, statement, parameters, context, executemany):
+            if statement.lstrip().upper().startswith('SELECT'):
+                select_statements.append(statement)
+
+        event.listen(db.engine, 'before_cursor_execute', count_selects)
+        try:
+            tree = mindmap_tree_data()
+        finally:
+            event.remove(db.engine, 'before_cursor_execute', count_selects)
+
+        self.assertEqual(len(tree), 1)
+        self.assertEqual(len(tree[0]['children']), 30)
+        self.assertLessEqual(len(select_statements), 3)
 
     def test_task_assignee_auto_propagates_to_ancestors(self):
         root = Task(title='洗车')

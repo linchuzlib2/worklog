@@ -4,6 +4,7 @@ import hmac
 import json
 import os
 import re
+import threading
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO, StringIO
@@ -217,6 +218,39 @@ def sync_database():
     if storage.enabled and os.path.exists(database_path()):
         with open(database_path(), "rb") as database_file:
             storage.upload_bytes(database_file.read(), os.getenv("OSS_DATABASE_KEY", "worklog/worklog.db"), "application/x-sqlite3")
+
+
+_database_sync_requested = threading.Event()
+_database_sync_worker_lock = threading.Lock()
+_database_sync_worker_thread = None
+
+
+def _database_sync_worker():
+    while True:
+        _database_sync_requested.wait()
+        _database_sync_requested.clear()
+        while _database_sync_requested.wait(timeout=1.0):
+            _database_sync_requested.clear()
+        try:
+            sync_database()
+        except Exception:
+            app.logger.exception("Background database backup sync failed")
+
+
+def schedule_database_sync():
+    """合并短时间内的导图修改，避免每次交互都等待完整 OSS 数据库上传。"""
+    global _database_sync_worker_thread
+    if not storage.enabled:
+        return
+    with _database_sync_worker_lock:
+        if _database_sync_worker_thread is None or not _database_sync_worker_thread.is_alive():
+            _database_sync_worker_thread = threading.Thread(
+                target=_database_sync_worker,
+                name="database-backup-sync",
+                daemon=True,
+            )
+            _database_sync_worker_thread.start()
+        _database_sync_requested.set()
 
 
 # ---- 知识库 RAG ----
@@ -836,9 +870,10 @@ def update_task_status(task_id):
     payload = request.get_json(silent=True) or request.form
     task.status = payload.get("status") or "todo"
     db.session.commit()
-    sync_database()
     if request.is_json:
+        schedule_database_sync()
         return jsonify({"ok": True})
+    sync_database()
     next_url = payload.get("next", "")
     if next_url and str(next_url).startswith("/"):
         return redirect(next_url)
@@ -1272,23 +1307,53 @@ def unlink_attachment(attachment_id):
 
 
 def mindmap_tree_data():
-    def task_node(task):
-        return {
+    tasks = Task.query.order_by(Task.created_at).all()
+    nodes = {
+        task.id: {
             "id": task.id,
+            "parent_id": task.parent_id,
             "title": task.title,
             "description": task.description or "",
             "status": task.status,
             "priority": task.priority,
             "due_date": task.due_date.strftime("%Y-%m-%d") if task.due_date else "",
             "assignee_id": task.assignee_id,
-            "assignee_name": task.assignee.name if task.assignee else "",
-            "notes": [{"id": note.id, "title": note.title} for note in task.notes],
-            "attachments": [{"id": att.id, "name": att.original_name} for att in task.attachments],
-            "children": [task_node(child) for child in task.children],
+            "notes": [],
+            "attachments": [],
+            "children": [],
         }
+        for task in tasks
+    }
+    if not nodes:
+        return []
 
-    roots = Task.query.filter_by(parent_id=None).order_by(Task.created_at).all()
-    return [task_node(task) for task in roots]
+    task_ids = list(nodes)
+    assignee_ids = {node["assignee_id"] for node in nodes.values() if node["assignee_id"] is not None}
+    assignees = {
+        assignee.id: assignee.name
+        for assignee in Assignee.query.filter(Assignee.id.in_(assignee_ids)).all()
+    } if assignee_ids else {}
+    for node in nodes.values():
+        node["assignee_name"] = assignees.get(node["assignee_id"], "")
+
+    note_rows = Note.query.with_entities(Note.id, Note.task_id, Note.title).filter(Note.task_id.in_(task_ids)).order_by(Note.updated_at.desc()).all()
+    for note_id, task_id, title in note_rows:
+        nodes[task_id]["notes"].append({"id": note_id, "title": title})
+    attachment_rows = Attachment.query.with_entities(Attachment.id, Attachment.task_id, Attachment.original_name).filter(Attachment.task_id.in_(task_ids)).order_by(Attachment.created_at.desc()).all()
+    for attachment_id, task_id, filename in attachment_rows:
+        nodes[task_id]["attachments"].append({"id": attachment_id, "name": filename})
+
+    roots = []
+    for task in tasks:
+        node = nodes[task.id]
+        parent = nodes.get(task.parent_id)
+        if parent:
+            parent["children"].append(node)
+        else:
+            roots.append(node)
+    for node in nodes.values():
+        node.pop("parent_id")
+    return roots
 
 
 @app.context_processor
@@ -1332,13 +1397,14 @@ def mindmap_create_task():
         parent = db.session.get(Task, parent_id) if parent_id else None
         task = Task(title=title, parent_id=parent_id, assignee_id=parent.assignee_id if parent else None)
         db.session.add(task)
-        db.session.commit()
+        db.session.flush()
         if task.assignee_id is not None:
             sync_task_assignee_tree(task, task.assignee_id)
         db.session.commit()
-        sync_database()
         if request.is_json:
+            schedule_database_sync()
             return jsonify({"ok": True, "id": task.id})
+        sync_database()
         flash("节点已创建", "success")
     return redirect(url_for("mindmap"))
 
@@ -1365,7 +1431,7 @@ def mindmap_move_task(task_id):
         task.parent_id = None
     sync_task_assignee_tree(task, task.assignee_id)
     db.session.commit()
-    sync_database()
+    schedule_database_sync()
     return jsonify({"ok": True})
 
 
@@ -1382,7 +1448,7 @@ def mindmap_delete_node(task_id):
     task = db.session.get(Task, task_id)
     db.session.delete(task)
     db.session.commit()
-    sync_database()
+    schedule_database_sync()
     return jsonify({"ok": True})
 
 
@@ -1394,9 +1460,10 @@ def mindmap_rename_task(task_id):
     if title:
         task.title = title
         db.session.commit()
-        sync_database()
         if request.is_json:
+            schedule_database_sync()
             return jsonify({"ok": True})
+        sync_database()
         flash("节点已重命名", "success")
     return redirect(url_for("mindmap"))
 
@@ -1451,9 +1518,10 @@ def mindmap_update_task(task_id):
         task.assignee_id = None
     sync_task_assignee_tree(task, task.assignee_id)
     db.session.commit()
-    sync_database()
     if request.is_json:
+        schedule_database_sync()
         return jsonify({"ok": True})
+    sync_database()
     flash("任务已更新", "success")
     next_url = payload.get("next") or request.args.get("next")
     if next_url and str(next_url).startswith("/"):
@@ -1482,7 +1550,7 @@ def mindmap_link(task_id):
         flash("请选择要关联的内容", "error")
         return redirect(url_for("mindmap"))
     db.session.commit()
-    sync_database()
+    schedule_database_sync()
     if request.is_json:
         return jsonify({"ok": True})
     flash("已关联", "success")
@@ -1507,7 +1575,7 @@ def mindmap_unlink(task_id):
         if attachment.task_id == task.id:
             attachment.task_id = None
     db.session.commit()
-    sync_database()
+    schedule_database_sync()
     if request.is_json:
         return jsonify({"ok": True})
     flash("已解除关联", "success")
