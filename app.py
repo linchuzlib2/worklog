@@ -713,8 +713,13 @@ def delete_schedule(schedule_id):
     item = db.get_or_404(Schedule, schedule_id)
     db.session.delete(item)
     db.session.commit()
-    sync_database()
-    flash("日程已删除", "success")
+    try:
+        sync_database()
+    except Exception:
+        app.logger.exception("Failed to sync database after deleting schedule")
+        flash("日程已删除，但数据库备份同步失败，请检查 Render 日志中的 OSS 错误。", "error")
+    else:
+        flash("日程已删除", "success")
     return redirect(request.referrer or url_for("schedule"))
 
 
