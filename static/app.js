@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
           image: function () {
             const input = document.createElement('input');
             input.setAttribute('type', 'file');
-            input.setAttribute('accept', 'image/*');
+            input.setAttribute('accept', '.png,.jpg,.jpeg,.gif,.webp,.bmp,.svg,.ico,image/*');
             input.style.display = 'none';
             document.body.appendChild(input);
             input.click();
@@ -28,31 +28,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
               }
               const file = input.files[0];
+              const fileName = (file.name || '').toLowerCase();
+              const isSupportedImage = file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg|ico)$/i.test(fileName);
+              if (!isSupportedImage) {
+                alert('仅支持 PNG、JPG/JPEG、GIF、WEBP、BMP、SVG、ICO 等图片格式');
+                document.body.removeChild(input);
+                return;
+              }
               if (file.size > 25 * 1024 * 1024) {
                 alert('图片不能超过 25 MB');
                 document.body.removeChild(input);
                 return;
-              }
-              const formData = new FormData();
-              formData.append('file', file);
-              const noteIdInput = editor.closest('form').querySelector('input[name="note_id"]');
-              if (noteIdInput && noteIdInput.value) {
-                formData.append('note_id', noteIdInput.value);
               }
               const range = quill.getSelection(true) || { index: 0, length: 0 };
               const placeholder = '图片上传中…';
               quill.disable();
               quill.insertText(range.index, placeholder);
               try {
-                const response = await fetch('/attachments/upload-image', { method: 'POST', body: formData });
-                const contentType = response.headers.get('content-type') || '';
-                const data = contentType.includes('application/json') ? await response.json() : {};
-                if (!response.ok || data.error) {
-                  const message = data.error || (response.status === 413 ? '图片超过 25 MB 限制' : `服务器返回错误 (${response.status})，请检查 OSS 配置或网络后重试`);
-                  throw new Error(message);
-                }
+                const base64 = await new Promise((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onload = () => resolve(reader.result);
+                  reader.onerror = () => reject(new Error('图片读取失败'));
+                  reader.readAsDataURL(file);
+                });
                 quill.deleteText(range.index, placeholder.length);
-                quill.insertEmbed(range.index, 'image', data.url, 'user');
+                quill.insertEmbed(range.index, 'image', base64, 'user');
                 quill.setSelection(range.index + 1, 0);
                 if (data.warning) alert(data.warning);
               } catch (error) {

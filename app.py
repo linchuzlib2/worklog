@@ -273,21 +273,15 @@ def ask_knowledge(question):
 
 
 def sanitize_html(value):
-    return bleach.clean(value or "", tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRIBUTES, protocols=["http", "https", "mailto"], strip=True)
+    return bleach.clean(value or "", tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRIBUTES, protocols=["http", "https", "mailto", "data"], strip=True)
 
 
 def link_note_image_attachments(content, note_id):
-    """把笔记正文中 <img src="/attachments/<id>/inline"> 引用的图片附件归属到本笔记。
+    """历史兼容：笔记图片已统一改为直接存储在正文中的 data URL，不再依赖附件列表。
 
-    - 新建笔记场景：先上传图片再保存时，图片 note_id 为空，这里统一关联；
-    - 编辑场景：保持引用关系，使附件随笔记 cascade 删除；
-    - 跨笔记复制：图片归属切换到最近一次保存它的笔记。
+    这里保留为空实现，避免旧附件引用继续影响新逻辑。
     """
-    for match in re.finditer(r"/attachments/(\d+)/inline", content or ""):
-        attachment_id = int(match.group(1))
-        attachment = db.session.get(Attachment, attachment_id)
-        if attachment and attachment.note_id != note_id:
-            attachment.note_id = note_id
+    return None
 
 
 def parse_date(value):
@@ -850,8 +844,6 @@ def new_note():
         note = Note(title=request.form["title"].strip(), content=sanitize_html(request.form.get("content")), task_id=request.form.get("task_id", type=int) or None)
         db.session.add(note)
         db.session.commit()
-        link_note_image_attachments(note.content, note.id)
-        db.session.commit()
         sync_database()
         flash("笔记已保存", "success")
         return redirect(url_for("note_detail", note_id=note.id))
@@ -871,8 +863,6 @@ def edit_note(note_id):
         note.title = request.form["title"].strip()
         note.content = sanitize_html(request.form.get("content"))
         note.task_id = request.form.get("task_id", type=int) or None
-        db.session.commit()
-        link_note_image_attachments(note.content, note.id)
         db.session.commit()
         sync_database()
         flash("笔记已更新", "success")
@@ -1504,57 +1494,11 @@ def inline_attachment(attachment_id):
 
 @app.post("/attachments/upload-image")
 def upload_image():
-    """富文本编辑器图片上传：返回 inline URL 供 <img src> 使用。
+    """图片只保存在笔记正文中，附件列表被忽略。
 
-    - 已保存笔记时带 note_id，立即归属；
-    - 新建未保存时 note_id 缺省，附件先为孤儿，保存笔记时由
-      link_note_image_attachments 统一回填。
+    前端已直接把图片转成 data URL，故这里不再创建任何附件记录。
     """
-    if not storage.enabled:
-        return jsonify({"error": "附件上传需要先配置阿里云 OSS"}), 400
-    uploaded = request.files.get("file")
-    if not uploaded or not uploaded.filename:
-        return jsonify({"error": "请选择图片"}), 400
-    filename = uploaded.filename
-    safe_name = re.sub(r"[^\w.\- ]", "_", filename)[:180]
-    key = f"attachments/{uuid.uuid4().hex}-{safe_name}"
-    try:
-        uploaded.stream.seek(0)
-        uploaded_size = storage.upload(uploaded, key)
-    except (BotoCoreError, ClientError, RuntimeError) as error:
-        return jsonify({"error": f"图片上传失败：{error}"}), 502
-    except Exception as error:
-        app.logger.exception("Unexpected image upload failure")
-        return jsonify({"error": f"图片上传失败：{error}"}), 500
-    note_id = request.form.get("note_id", type=int)
-    if note_id:
-        db.get_or_404(Note, note_id)
-    attachment = Attachment(
-        original_name=filename,
-        object_key=key,
-        content_type=uploaded.content_type or "application/octet-stream",
-        size=uploaded_size,
-        note_id=note_id,
-    )
-    db.session.add(attachment)
-    try:
-        db.session.commit()
-    except Exception as error:
-        db.session.rollback()
-        app.logger.exception("Failed to save uploaded image attachment")
-        try:
-            storage.delete(key)
-        except Exception:
-            app.logger.exception("Failed to remove image after attachment save failure")
-        return jsonify({"error": f"图片已上传到 OSS，但附件记录保存失败：{error}"}), 500
-
-    response = {"url": url_for("inline_attachment", attachment_id=attachment.id), "id": attachment.id}
-    try:
-        sync_database()
-    except Exception as error:
-        app.logger.exception("Failed to sync database after image upload")
-        response["warning"] = f"图片已上传，但数据库备份同步失败：{error}。请检查 Render 日志中的 OSS 错误。"
-    return jsonify(response)
+    return jsonify({"error": "图片已按 data URL 直接保存在笔记正文中，不再通过附件列表保存。"}), 410
 
 
 @app.get("/health")
