@@ -54,7 +54,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 quill.deleteText(range.index, placeholder.length);
                 quill.insertEmbed(range.index, 'image', base64, 'user');
                 quill.setSelection(range.index + 1, 0);
-                if (data.warning) alert(data.warning);
               } catch (error) {
                 quill.deleteText(range.index, placeholder.length);
                 alert('图片上传失败：' + error.message);
