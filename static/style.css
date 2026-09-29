@@ -97,6 +97,14 @@ mark#first-match{outline:2px solid #f47763;outline-offset:2px;box-shadow:0 0 0 4
 .schedule-card[draggable="true"]{cursor:grab}
 .schedule-card.dragging{opacity:.4;cursor:grabbing}
 .calendar-slot.drop-target{outline:2px dashed var(--green);outline-offset:-2px;background:#eaf7ef}
+.calendar-day-header.today{background:#ffe6de;border-top:3px solid var(--coral)}
+.calendar-day-header.today strong{color:#a54838}
+.calendar-slot.today{background:#fff8f4}
+.calendar-slot.today:hover{background:#fff0e8}
+.calendar-slot .schedule-card{transition:box-shadow .12s ease}
+.calendar-slot .schedule-card:hover{position:absolute;top:2px;left:2px;width:max-content;min-width:calc(100% - 4px);max-width:min(340px,80vw);white-space:normal;z-index:20;box-shadow:0 8px 24px #16262238}
+.calendar-slot .schedule-card:hover strong{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+.calendar-slot .schedule-card:hover p,.calendar-slot .schedule-card:hover a{display:block;white-space:normal;overflow-wrap:anywhere}
 /* Mindmap */
 .mindmap-page{padding-bottom:40px}
 .mindmap-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;align-items:start}

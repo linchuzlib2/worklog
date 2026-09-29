@@ -1,3 +1,30 @@
+window.chinaDateTime = (() => {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  });
+  const pad = (value) => String(value).padStart(2, '0');
+  const formatUtc = (date) => `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}T${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
+  const addMinutes = (value, minutes) => {
+    const [datePart, timePart] = value.split('T');
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hour, minute] = timePart.split(':').map(Number);
+    return formatUtc(new Date(Date.UTC(year, month - 1, day, hour, minute + minutes)));
+  };
+  return {
+    nowValue() {
+      const parts = Object.fromEntries(formatter.formatToParts(new Date()).map(({ type, value }) => [type, value]));
+      return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+    },
+    addMinutes,
+    nextHalfHour() {
+      const current = this.nowValue();
+      const minute = Number(current.slice(-2));
+      return addMinutes(current, minute < 30 ? 30 - minute : 60 - minute);
+    }
+  };
+})();
+
 document.addEventListener('DOMContentLoaded', () => {
   const editor = document.querySelector('#editor');
   if (!editor || typeof Quill === 'undefined') return;
@@ -138,28 +165,19 @@ const scheduleDialog = document.querySelector('#schedule-dialog');
 if (scheduleDialog) {
   const startInput = scheduleDialog.querySelector('input[name="start_at"]');
   const endInput = scheduleDialog.querySelector('input[name="end_at"]');
-  const toDateTimeValue = (date) => {
-    const pad = (v) => String(v).padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  };
   const syncEndFromStart = () => {
     if (!startInput.value) return;
-    const start = new Date(startInput.value);
-    if (Number.isNaN(start.getTime())) return;
-    const currentEnd = endInput.value ? new Date(endInput.value) : null;
-    if (!currentEnd || currentEnd <= start) {
-      const end = new Date(start.getTime() + 30 * 60 * 1000);
-      endInput.value = toDateTimeValue(end);
+    const suggestedEnd = window.chinaDateTime.addMinutes(startInput.value, 30);
+    if (!endInput.value || endInput.value <= startInput.value) {
+      endInput.value = suggestedEnd;
     }
   };
   ['input', 'change', 'blur'].forEach((eventName) => {
     startInput.addEventListener(eventName, syncEndFromStart);
   });
   const openScheduleDialog = (date, time) => {
-    const start = new Date(`${date}T${time}:00`);
-    startInput.value = toDateTimeValue(start);
-    start.setMinutes(start.getMinutes() + 30);
-    endInput.value = toDateTimeValue(start);
+    startInput.value = `${date}T${time}`;
+    endInput.value = window.chinaDateTime.addMinutes(startInput.value, 30);
     scheduleDialog.showModal();
     scheduleDialog.querySelector('input[name="title"]').focus();
   };

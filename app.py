@@ -3,7 +3,7 @@ import json
 import os
 import re
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO, StringIO
 
 import bleach
@@ -29,6 +29,23 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = 35 * 1024 * 1024
 
 db = SQLAlchemy(app)
+
+CHINA_TIMEZONE = timezone(timedelta(hours=8), name="China Standard Time")
+
+
+def china_now():
+    return datetime.now(CHINA_TIMEZONE).replace(tzinfo=None)
+
+
+def to_china_datetime(value):
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(CHINA_TIMEZONE)
+
+
+@app.template_filter("china_time")
+def format_china_time(value, format_string="%Y-%m-%d %H:%M"):
+    return to_china_datetime(value).strftime(format_string) if value else ""
 
 ALLOWED_TAGS = set(bleach.sanitizer.ALLOWED_TAGS) | {
     "p", "br", "h1", "h2", "h3", "h4", "blockquote", "pre", "code",
@@ -467,7 +484,7 @@ def migrate_schema():
 
 @app.context_processor
 def inject_counts():
-    return {"pending_count": Task.query.filter(Task.status != "done").count() if db.engine else 0, "oss_enabled": storage.enabled, "now": datetime.utcnow(), "timedelta": timedelta, "root_task_for": root_task_for}
+    return {"pending_count": Task.query.filter(Task.status != "done").count() if db.engine else 0, "oss_enabled": storage.enabled, "now": china_now(), "timedelta": timedelta, "root_task_for": root_task_for}
 
 
 
@@ -524,7 +541,7 @@ def index():
     notes = Note.query.order_by(Note.updated_at.desc()).limit(8).all()
     total_pending = Task.query.filter(Task.status != "done").count() + Schedule.query.filter(Schedule.completed.is_(False)).count()
     total_done = Task.query.filter(Task.status == "done").count() + Schedule.query.filter(Schedule.completed.is_(True)).count()
-    today = date.today()
+    today = china_now().date()
     today_tasks = Task.query.filter(Task.due_date == today, Task.status != "done").order_by(Task.priority).all()
     day_start = datetime.combine(today, datetime.min.time())
     day_end = datetime.combine(today, datetime.max.time())
@@ -662,7 +679,7 @@ def export_tasks_for_assignee():
 @app.get("/api/reminders")
 def api_reminders():
     """返回未完成且已到点/已过期的日程，前端轮询后弹窗提醒，避免遗漏。"""
-    now = datetime.now()
+    now = china_now()
     window_start = now - timedelta(days=7)
     items = (
         Schedule.query
@@ -697,15 +714,16 @@ def schedule():
         return redirect(url_for("schedule", week=request.form.get("week")))
     selected = request.args.get("week")
     try:
-        week_start = datetime.strptime(selected, "%Y-%m-%d") if selected else datetime.now()
+        week_start = datetime.strptime(selected, "%Y-%m-%d") if selected else china_now()
     except ValueError:
-        week_start = datetime.now()
+        week_start = china_now()
     week_start = (week_start - timedelta(days=week_start.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     week_end = week_start + timedelta(days=7)
     items = Schedule.query.filter(Schedule.start_at >= week_start, Schedule.start_at < week_end).order_by(Schedule.start_at).all()
     days = [week_start + timedelta(days=index) for index in range(7)]
+    today = china_now().date()
     time_slots = [f"{hour:02d}:{minute:02d}" for hour in range(6, 25) for minute in (0, 30)]
-    return render_template("schedule.html", items=items, days=days, time_slots=time_slots, week_start=week_start, previous_week=week_start - timedelta(days=7), next_week=week_start + timedelta(days=7), tasks=Task.query.order_by(Task.title).all())
+    return render_template("schedule.html", items=items, days=days, today=today, time_slots=time_slots, week_start=week_start, previous_week=week_start - timedelta(days=7), next_week=week_start + timedelta(days=7), tasks=Task.query.order_by(Task.title).all())
 
 
 @app.post("/schedule/<int:schedule_id>/delete")

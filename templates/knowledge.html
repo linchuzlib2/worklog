@@ -21,7 +21,7 @@
       <div class="kb-doc">
         <div class="kb-doc-head">
           <strong>{{ doc.title }}</strong>
-          <span class="kb-meta">{{ doc.chunks|length }} 块 · {{ doc.created_at.strftime('%Y-%m-%d') }}</span>
+          <span class="kb-meta">{{ doc.chunks|length }} 块 · {{ doc.created_at|china_time('%Y-%m-%d') }}</span>
           <form method="post" action="{{ url_for('knowledge_delete', doc_id=doc.id) }}"><button class="icon-button" title="删除文档" onclick="return confirm('确定删除该文档及其知识块吗？')">✕</button></form>
         </div>
         <p>{{ doc.content|truncate(120) }}</p>

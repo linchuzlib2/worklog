@@ -2,7 +2,7 @@
 {% block title %}{{ note.title }}{% endblock %}
 {% block content %}
 <div class="detail-page note-detail"><a class="back-link" href="{{ url_for('index') }}">← 返回工作台</a>
-	<div class="detail-header"><div><span class="eyebrow">工作笔记</span><h1 data-highlight>{{ note.title }}</h1><div class="detail-meta" data-highlight>更新于 {{ note.updated_at.strftime('%Y-%m-%d %H:%M') }}{% if note.task %} · 关联任务：<a href="{{ url_for('task_detail', task_id=note.task.id) }}">{{ note.task.title }}</a>{% endif %}</div></div><div class="top-actions"><button class="button ghost" id="detail-polish-btn" type="button">✦ AI 润色</button><a class="button ghost" href="{{ url_for('edit_note', note_id=note.id) }}">编辑</a><form method="post" action="{{ url_for('delete_note', note_id=note.id) }}" onsubmit="var b=this.querySelector('button'); b.disabled=true; b.textContent='删除中…'; return confirm('确定删除这篇笔记吗？关联附件也会被删除。')"><button class="button danger" type="submit">删除</button></form></div></div>
+  <div class="detail-header"><div><span class="eyebrow">工作笔记</span><h1 data-highlight>{{ note.title }}</h1><div class="detail-meta" data-highlight>更新于 {{ note.updated_at|china_time('%Y-%m-%d %H:%M') }}{% if note.task %} · 关联任务：<a href="{{ url_for('task_detail', task_id=note.task.id) }}">{{ note.task.title }}</a>{% endif %}</div></div><div class="top-actions"><button class="button ghost" id="detail-polish-btn" type="button">✦ AI 润色</button><a class="button ghost" href="{{ url_for('edit_note', note_id=note.id) }}">编辑</a><form method="post" action="{{ url_for('delete_note', note_id=note.id) }}" onsubmit="var b=this.querySelector('button'); b.disabled=true; b.textContent='删除中…'; return confirm('确定删除这篇笔记吗？关联附件也会被删除。')"><button class="button danger" type="submit">删除</button></form></div></div>
 	<div class="rich-content" data-highlight id="note-content">{{ note.content|safe or '<p class="muted">这是一篇空白笔记。</p>'|safe }}</div>
 	<button type="button" id="selection-schedule-btn" hidden>＋ 添加为日程</button>
 	<div class="related-panel"><div class="section-title"><h2>附件 <span class="count">{{ note.attachments|length }}</span></h2></div>
@@ -28,18 +28,10 @@
     document.querySelectorAll('#schedule-dialog input[name="start_at"]').forEach(function (startInput) {
       const endInput = startInput.closest('form').querySelector('input[name="end_at"]');
       if (!endInput) return;
-      const toDateTimeValue = function (date) {
-        const pad = function (value) { return String(value).padStart(2, '0'); };
-        return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes());
-      };
       const syncEndFromStart = function () {
         if (!startInput.value) return;
-        const start = new Date(startInput.value);
-        if (Number.isNaN(start.getTime())) return;
-        const currentEnd = endInput.value ? new Date(endInput.value) : null;
-        if (!currentEnd || currentEnd <= start) {
-          const end = new Date(start.getTime() + 30 * 60 * 1000);
-          endInput.value = toDateTimeValue(end);
+        if (!endInput.value || endInput.value <= startInput.value) {
+          endInput.value = window.chinaDateTime.addMinutes(startInput.value, 30);
         }
       };
       ['input', 'change', 'blur'].forEach(function (eventName) {
@@ -101,17 +93,10 @@
     var startInput = dialog.querySelector('input[name="start_at"]');
     var endInput = dialog.querySelector('input[name="end_at"]');
     if (startInput && !startInput.value) {
-      var now = new Date();
-      now.setMinutes(now.getMinutes() < 30 ? 30 : 60, 0, 0);
-      startInput.value = now.toISOString().slice(0, 16);
+      startInput.value = window.chinaDateTime.nextHalfHour();
     }
     if (startInput && endInput && startInput.value) {
-      var start = new Date(startInput.value);
-      if (!Number.isNaN(start.getTime())) {
-        var end = new Date(start.getTime() + 30 * 60 * 1000);
-        var pad = function (value) { return String(value).padStart(2, '0'); };
-        endInput.value = end.getFullYear() + '-' + pad(end.getMonth() + 1) + '-' + pad(end.getDate()) + 'T' + pad(end.getHours()) + ':' + pad(end.getMinutes());
-      }
+      endInput.value = window.chinaDateTime.addMinutes(startInput.value, 30);
     }
     dialog.showModal();
   });
