@@ -1007,8 +1007,17 @@ def _knowledge_upload_inner():
     if uploads:
         imported_docs = []
         failures = []
+        known_filenames = {
+            os.path.basename((stored_name or "").replace("\\", "/")).strip().casefold()
+            for (stored_name,) in KnowledgeDoc.query.with_entities(KnowledgeDoc.filename).all()
+            if stored_name
+        }
         for upload in uploads:
             filename = os.path.basename(upload.filename.replace("\\", "/")).strip()
+            normalized_filename = filename.casefold()
+            if normalized_filename in known_filenames:
+                failures.append(f"{filename}: 文件名已存在，未重复导入")
+                continue
             try:
                 content = extract_knowledge_file_text(upload.read(), filename)
                 if not content.strip():
@@ -1029,6 +1038,7 @@ def _knowledge_upload_inner():
                         db.session.commit()
                     raise
                 imported_docs.append(doc)
+                known_filenames.add(normalized_filename)
             except Exception as error:
                 db.session.rollback()
                 app.logger.exception("Failed to import knowledge file %s", filename)

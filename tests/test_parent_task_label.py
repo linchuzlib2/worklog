@@ -144,6 +144,30 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         self.assertIsNotNone(KnowledgeDoc.query.filter_by(title='制度一.txt').first())
         self.assertIsNotNone(KnowledgeDoc.query.filter_by(title='制度二.md').first())
 
+    def test_knowledge_upload_skips_duplicate_filenames(self):
+        existing = KnowledgeDoc(title='已有制度', filename='Policy.txt', content='existing')
+        db.session.add(existing)
+        db.session.commit()
+
+        response = app.test_client().post(
+            '/knowledge/upload',
+            data={
+                'files': [
+                    (BytesIO(b'duplicate'), 'policy.TXT'),
+                    (BytesIO(b'new first'), 'new-policy.txt'),
+                    (BytesIO(b'new duplicate'), 'NEW-POLICY.TXT'),
+                ],
+            },
+            content_type='multipart/form-data',
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('文件名已存在', response.get_data(as_text=True))
+        self.assertIsNotNone(KnowledgeDoc.query.filter_by(filename='new-policy.txt').first())
+        self.assertIsNone(KnowledgeDoc.query.filter_by(filename='NEW-POLICY.TXT').first())
+        self.assertEqual(KnowledgeDoc.query.filter_by(filename='Policy.txt').count(), 1)
+
 
 if __name__ == '__main__':
     unittest.main()
