@@ -1,4 +1,6 @@
 import csv
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -26,7 +28,7 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "change-this-secret")
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///worklog.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["MAX_CONTENT_LENGTH"] = 35 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
 
 db = SQLAlchemy(app)
 
@@ -484,7 +486,7 @@ def migrate_schema():
 
 @app.context_processor
 def inject_counts():
-    return {"pending_count": Task.query.filter(Task.status != "done").count() if db.engine else 0, "oss_enabled": storage.enabled, "now": china_now(), "timedelta": timedelta, "root_task_for": root_task_for}
+    return {"pending_count": Task.query.filter(Task.status != "done").count() if db.engine else 0, "oss_enabled": storage.enabled, "local_editor_enabled": bool(os.getenv("LOCAL_EDITOR_TOKEN", "").strip()), "now": china_now(), "timedelta": timedelta, "root_task_for": root_task_for}
 
 
 
@@ -1035,8 +1037,13 @@ def _knowledge_upload_inner():
         db.session.delete(doc)
         db.session.commit()
         raise error
-    sync_database()
-    flash(f"已导入「{doc.title}」（{len(doc.chunks)} 个知识块）", "success")
+    try:
+        sync_database()
+    except Exception:
+        app.logger.exception("Failed to sync database after knowledge document import")
+        flash(f"已导入「{doc.title}」（{len(doc.chunks)} 个知识块），但数据库备份同步失败，请检查 Render 日志中的 OSS 错误。", "error")
+    else:
+        flash(f"已导入「{doc.title}」（{len(doc.chunks)} 个知识块）", "success")
     return redirect(url_for("knowledge"))
 
 
@@ -1512,6 +1519,81 @@ def download_attachment(attachment_id):
         flash(f"附件读取失败：{error}", "error")
         return redirect(request.referrer or url_for("index"))
     return send_file(BytesIO(data), as_attachment=True, download_name=attachment.original_name, mimetype=attachment.content_type)
+
+
+def authorize_local_editor():
+    expected_token = os.getenv("LOCAL_EDITOR_TOKEN", "").strip()
+    scheme, separator, provided_token = request.headers.get("Authorization", "").partition(" ")
+    if not expected_token:
+        return jsonify({"error": "本机编辑未配置同步密钥"}), 503
+    if scheme.lower() != "bearer" or not separator or not hmac.compare_digest(provided_token, expected_token):
+        return jsonify({"error": "同步密钥无效"}), 401
+    return None
+
+
+def local_editor_attachment(attachment_id):
+    attachment = db.get_or_404(Attachment, attachment_id)
+    extension = os.path.splitext(attachment.original_name)[1].lower()
+    if extension not in {".doc", ".docx", ".xls", ".xlsx", ".pdf"}:
+        return None, (jsonify({"error": "仅支持 doc、docx、xls、xlsx、pdf 文件"}), 415)
+    if not storage.enabled:
+        return None, (jsonify({"error": "OSS 存储未配置"}), 503)
+    return attachment, None
+
+
+@app.get("/api/local-editor/<int:attachment_id>")
+def local_editor_info(attachment_id):
+    auth_error = authorize_local_editor()
+    if auth_error:
+        return auth_error
+    attachment, error_response = local_editor_attachment(attachment_id)
+    if error_response:
+        return error_response
+    return jsonify({"filename": attachment.original_name})
+
+
+@app.route("/api/local-editor/<int:attachment_id>/content", methods=["GET", "PUT"])
+def local_editor_content(attachment_id):
+    auth_error = authorize_local_editor()
+    if auth_error:
+        return auth_error
+    attachment, error_response = local_editor_attachment(attachment_id)
+    if error_response:
+        return error_response
+
+    try:
+        current_data = storage.download(attachment.object_key)
+    except (BotoCoreError, ClientError) as error:
+        app.logger.exception("Failed to read document for local editing")
+        return jsonify({"error": f"文件读取失败：{error}"}), 502
+
+    current_revision = hashlib.sha256(current_data).hexdigest()
+    if request.method == "GET":
+        response = send_file(BytesIO(current_data), as_attachment=True, download_name=attachment.original_name, mimetype="application/octet-stream")
+        response.set_etag(current_revision)
+        return response
+
+    expected_revision = request.headers.get("If-Match", "").strip().strip('"')
+    if not expected_revision or not hmac.compare_digest(expected_revision, current_revision):
+        return jsonify({"error": "云端文件已被其他操作修改，请重新打开最新版本后再编辑"}), 409
+    updated_data = request.get_data(cache=False)
+    if not updated_data:
+        return jsonify({"error": "不能用空文件覆盖原文档"}), 400
+
+    try:
+        storage.upload_bytes(updated_data, attachment.object_key, attachment.content_type or "application/octet-stream")
+        attachment.size = len(updated_data)
+        db.session.commit()
+    except Exception as error:
+        db.session.rollback()
+        app.logger.exception("Failed to replace document from local editor")
+        return jsonify({"error": f"文件推送失败：{error}"}), 502
+
+    try:
+        sync_database()
+    except Exception:
+        app.logger.exception("Failed to sync database after local document edit")
+    return jsonify({"ok": True, "revision": hashlib.sha256(updated_data).hexdigest()})
 
 
 @app.get("/attachments/<int:attachment_id>/inline")

@@ -20,6 +20,8 @@ services:
         sync: false
       - key: OSS_DATABASE_KEY
         value: worklog/worklog.db
+      - key: LOCAL_EDITOR_TOKEN
+        sync: false
       - key: ZHIPU_API_KEY
         sync: false
       - key: AI_API_KEY
