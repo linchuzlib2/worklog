@@ -26,7 +26,7 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "change-this-secret")
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///worklog.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 35 * 1024 * 1024
 
 db = SQLAlchemy(app)
 
@@ -844,8 +844,13 @@ def new_note():
         note = Note(title=request.form["title"].strip(), content=sanitize_html(request.form.get("content")), task_id=request.form.get("task_id", type=int) or None)
         db.session.add(note)
         db.session.commit()
-        sync_database()
-        flash("笔记已保存", "success")
+        try:
+            sync_database()
+        except Exception:
+            app.logger.exception("Failed to sync database after saving note")
+            flash("笔记已保存，但数据库备份同步失败，请检查 Render 日志中的 OSS 错误。", "error")
+        else:
+            flash("笔记已保存", "success")
         return redirect(url_for("note_detail", note_id=note.id))
     return render_template("note_form.html", note=None, tasks=Task.query.order_by(Task.title).all(), selected_task_id=request.args.get("task_id", type=int))
 
@@ -864,8 +869,13 @@ def edit_note(note_id):
         note.content = sanitize_html(request.form.get("content"))
         note.task_id = request.form.get("task_id", type=int) or None
         db.session.commit()
-        sync_database()
-        flash("笔记已更新", "success")
+        try:
+            sync_database()
+        except Exception:
+            app.logger.exception("Failed to sync database after updating note")
+            flash("笔记已更新，但数据库备份同步失败，请检查 Render 日志中的 OSS 错误。", "error")
+        else:
+            flash("笔记已更新", "success")
         return redirect(url_for("note_detail", note_id=note.id))
     return render_template("note_form.html", note=note, tasks=Task.query.order_by(Task.title).all(), selected_task_id=note.task_id)
 
