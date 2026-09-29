@@ -122,7 +122,27 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn('已导入', response.get_data(as_text=True))
-        self.assertIsNotNone(KnowledgeDoc.query.filter_by(title='人员名单').first())
+        self.assertIsNotNone(KnowledgeDoc.query.filter_by(title='人员名单.xlsx').first())
+
+    def test_knowledge_upload_imports_multiple_files_using_filenames(self):
+        client = app.test_client()
+        response = client.post(
+            '/knowledge/upload',
+            data={
+                'title': '这个标题不应用于上传文件',
+                'files': [
+                    (BytesIO(b'first document'), '制度一.txt'),
+                    (BytesIO(b'second document'), '制度二.md'),
+                ],
+            },
+            content_type='multipart/form-data',
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('已导入 2 个文件', response.get_data(as_text=True))
+        self.assertIsNotNone(KnowledgeDoc.query.filter_by(title='制度一.txt').first())
+        self.assertIsNotNone(KnowledgeDoc.query.filter_by(title='制度二.md').first())
 
 
 if __name__ == '__main__':

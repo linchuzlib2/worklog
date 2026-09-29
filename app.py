@@ -998,37 +998,64 @@ def knowledge_upload():
 def _knowledge_upload_inner():
     title = (request.form.get("title") or "").strip()
     pasted = (request.form.get("content") or "").strip()
-    content = ""
-    filename = ""
-    upload = request.files.get("file")
-    if upload and upload.filename:
-        filename = upload.filename
-        if not title:
-            title = os.path.splitext(filename)[0]
-        lower = filename.lower()
-        try:
-            data = upload.read()
-            if lower.endswith(".pdf"):
-                content = extract_knowledge_file_text(data, filename)
+    uploads = [upload for upload in request.files.getlist("files") if upload and upload.filename]
+    if not uploads:
+        legacy_upload = request.files.get("file")
+        if legacy_upload and legacy_upload.filename:
+            uploads = [legacy_upload]
+
+    if uploads:
+        imported_docs = []
+        failures = []
+        for upload in uploads:
+            filename = os.path.basename(upload.filename.replace("\\", "/")).strip()
+            try:
+                content = extract_knowledge_file_text(upload.read(), filename)
                 if not content.strip():
-                    flash("该 PDF 提取不到文字（可能是扫描件/图片版），请改用可复制文字的 PDF 或粘贴文本", "error")
-                    return redirect(url_for("knowledge"))
+                    if filename.lower().endswith(".pdf"):
+                        raise ValueError("PDF 未提取到文字，可能是扫描件或图片版")
+                    raise ValueError("文件中没有可导入的文字")
+
+                doc = KnowledgeDoc(title=filename[:200], filename=filename, content=content)
+                db.session.add(doc)
+                db.session.commit()
+                try:
+                    embed_document(doc)
+                except Exception:
+                    db.session.rollback()
+                    failed_doc = db.session.get(KnowledgeDoc, doc.id)
+                    if failed_doc:
+                        db.session.delete(failed_doc)
+                        db.session.commit()
+                    raise
+                imported_docs.append(doc)
+            except Exception as error:
+                db.session.rollback()
+                app.logger.exception("Failed to import knowledge file %s", filename)
+                failures.append(f"{filename}: {error}")
+
+        if imported_docs:
+            total_chunks = sum(len(doc.chunks) for doc in imported_docs)
+            try:
+                sync_database()
+            except Exception:
+                app.logger.exception("Failed to sync database after knowledge document import")
+                flash(f"已导入 {len(imported_docs)} 个文件、{total_chunks} 个知识块，但数据库备份同步失败，请检查 Render 日志中的 OSS 错误。", "error")
             else:
-                content = extract_knowledge_file_text(data, filename)
-        except ValueError as exc:
-            flash(str(exc) + "，或直接粘贴文本", "error")
-            return redirect(url_for("knowledge"))
-        except Exception as exc:
-            flash(f"读取文件失败：{exc}", "error")
-            return redirect(url_for("knowledge"))
-    elif pasted:
-        content = pasted
-        if not title:
-            title = "未命名文档"
-    if not content.strip():
+                flash(f"已导入 {len(imported_docs)} 个文件、{total_chunks} 个知识块，标题使用原文件名。", "success")
+        if failures:
+            visible_failures = failures[:5]
+            if len(failures) > len(visible_failures):
+                visible_failures.append(f"另有 {len(failures) - len(visible_failures)} 个文件导入失败")
+            flash("部分文件导入失败：" + "；".join(visible_failures), "error")
+        return redirect(url_for("knowledge"))
+
+    if not pasted:
         flash("请上传文件或粘贴文本内容", "error")
         return redirect(url_for("knowledge"))
-    doc = KnowledgeDoc(title=title[:200], filename=filename, content=content)
+    if not title:
+        title = "未命名文档"
+    doc = KnowledgeDoc(title=title[:200], filename="", content=pasted)
     db.session.add(doc)
     db.session.commit()
     try:
