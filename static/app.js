@@ -50,7 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
                   reader.readAsDataURL(file);
                 });
                 quill.deleteText(range.index, placeholder.length);
-                quill.insertEmbed(range.index, 'image', base64, 'user');
+                quill.insertEmbed(range.index, 'image', base64, 'api');
                 quill.setSelection(range.index + 1, 0);
               } catch (error) {
                 quill.deleteText(range.index, placeholder.length);
