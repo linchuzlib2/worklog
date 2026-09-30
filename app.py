@@ -1094,13 +1094,8 @@ def _knowledge_upload_inner():
 
         if imported_docs:
             total_chunks = sum(len(doc.chunks) for doc in imported_docs)
-            try:
-                sync_database()
-            except Exception:
-                app.logger.exception("Failed to sync database after knowledge document import")
-                flash(f"已导入 {len(imported_docs)} 个文件、{total_chunks} 个知识块，但数据库备份同步失败，请检查 Render 日志中的 OSS 错误。", "error")
-            else:
-                flash(f"已导入 {len(imported_docs)} 个文件、{total_chunks} 个知识块，标题使用原文件名。", "success")
+            schedule_database_sync()
+            flash(f"已导入 {len(imported_docs)} 个文件、{total_chunks} 个知识块，标题使用原文件名。", "success")
         if failures:
             visible_failures = failures[:5]
             if len(failures) > len(visible_failures):
@@ -1122,13 +1117,8 @@ def _knowledge_upload_inner():
         db.session.delete(doc)
         db.session.commit()
         raise error
-    try:
-        sync_database()
-    except Exception:
-        app.logger.exception("Failed to sync database after knowledge document import")
-        flash(f"已导入「{doc.title}」（{len(doc.chunks)} 个知识块），但数据库备份同步失败，请检查 Render 日志中的 OSS 错误。", "error")
-    else:
-        flash(f"已导入「{doc.title}」（{len(doc.chunks)} 个知识块）", "success")
+    schedule_database_sync()
+    flash(f"已导入「{doc.title}」（{len(doc.chunks)} 个知识块）", "success")
     return redirect(url_for("knowledge"))
 
 
@@ -1137,7 +1127,7 @@ def knowledge_delete(doc_id):
     doc = db.get_or_404(KnowledgeDoc, doc_id)
     db.session.delete(doc)
     db.session.commit()
-    sync_database()
+    schedule_database_sync()
     flash("文档已删除", "success")
     return redirect(url_for("knowledge"))
 

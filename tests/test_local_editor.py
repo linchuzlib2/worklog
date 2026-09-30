@@ -134,10 +134,10 @@ class LocalEditorApiTestCase(unittest.TestCase):
         self.assertEqual(reader.get_json()["chapters"][0]["title"], "第一章")
         self.assertEqual(page.status_code, 200)
 
-    def test_knowledge_import_survives_database_sync_failure(self):
+    def test_knowledge_import_schedules_database_backup(self):
         with patch.object(worklog.ai, "embed", side_effect=worklog.ai.EmbedUnavailable("not configured")), patch.object(
-            worklog, "sync_database", side_effect=RuntimeError("OSS unavailable")
-        ):
+            worklog, "schedule_database_sync"
+        ) as schedule_sync, patch.object(worklog, "sync_database", side_effect=RuntimeError("OSS unavailable")) as sync_database:
             response = self.client.post(
                 "/knowledge/upload",
                 data={"title": "sync-test", "content": "document text"},
@@ -145,8 +145,25 @@ class LocalEditorApiTestCase(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("数据库备份同步失败", response.get_data(as_text=True))
+        self.assertIn("已导入", response.get_data(as_text=True))
         self.assertIsNotNone(worklog.KnowledgeDoc.query.filter_by(title="sync-test").first())
+        schedule_sync.assert_called_once_with()
+        sync_database.assert_not_called()
+
+    def test_knowledge_delete_schedules_backup_without_oss_failure(self):
+        document = worklog.KnowledgeDoc(title="delete-test", filename="", content="text")
+        worklog.db.session.add(document)
+        worklog.db.session.commit()
+
+        with patch.object(worklog, "schedule_database_sync") as schedule_sync, patch.object(
+            worklog, "sync_database", side_effect=RuntimeError("OSS unavailable")
+        ) as sync_database:
+            response = self.client.post(f"/knowledge/doc/{document.id}/delete", follow_redirects=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(worklog.db.session.get(worklog.KnowledgeDoc, document.id))
+        schedule_sync.assert_called_once_with()
+        sync_database.assert_not_called()
 
 
 if __name__ == "__main__":
