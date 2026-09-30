@@ -19,7 +19,7 @@
 {% endmacro %}
 {% block content %}
 <div class="file-page">
-<section class="page-heading"><div><p class="eyebrow">FILE LIBRARY</p><h1>文件管理</h1><p class="subtitle">左侧选择文件夹，右侧管理文件清单。</p><p class="muted small">每台 Windows 电脑需安装一次：同时下载<a href="{{ url_for('static', filename='local-editor/Install-LocalEditor.bat') }}" download>启动器</a>和<a href="{{ url_for('static', filename='local-editor/Install-LocalEditor.ps1') }}" download>安装脚本</a>到同一文件夹，然后双击启动器。{% if not local_editor_enabled %}（管理员尚未配置同步密钥）{% endif %}</p></div><div class="top-actions"><form method="post" action="{{ url_for('create_folder') }}" class="inline-form"><input name="name" required placeholder="新文件夹名称"><input type="hidden" name="parent_id" value="{{ folder.id if folder else '' }}"><button class="button ghost">＋ 新建文件夹</button></form></div></section>
+<section class="page-heading"><div><p class="eyebrow">FILE LIBRARY</p><h1>文件管理</h1><p class="subtitle">左侧选择文件夹，右侧管理文件清单。</p><p class="muted small">每台 Windows 电脑需安装一次：同时下载<a href="{{ url_for('static', filename='local-editor/Install-LocalEditor.bat') }}" download>Install-LocalEditor.bat</a>和<a href="{{ url_for('static', filename='local-editor/Install-LocalEditor.ps1') }}" download>Install-LocalEditor.ps1</a>到同一文件夹，然后双击 BAT 文件。{% if not local_editor_enabled %}（管理员尚未配置同步密钥）{% endif %}</p></div><div class="top-actions"><form method="post" action="{{ url_for('create_folder') }}" class="inline-form"><input name="name" required placeholder="新文件夹名称"><input type="hidden" name="parent_id" value="{{ folder.id if folder else '' }}"><button class="button ghost">＋ 新建文件夹</button></form></div></section>
 <div class="file-layout">
   <aside class="folder-tree">
     <div class="tree-folder tree-root {% if not folder %}active{% endif %}" data-folder-id="">
