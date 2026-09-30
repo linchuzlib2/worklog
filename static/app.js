@@ -144,11 +144,21 @@ document.querySelectorAll('.duplicate-aware-upload').forEach((form) => {
     const allow = form.querySelector('input[name="allow_duplicate"]');
     if (!input.files.length || allow.value === '1') return;
     event.preventDefault();
-    const response = await fetch(`/attachments/check-name?filename=${encodeURIComponent(input.files[0].name)}`);
-    const result = await response.json();
-    if (!result.duplicate || confirm(`文件管理中已有“${input.files[0].name}”，仍要重复上传吗？`)) {
-      allow.value = '1';
+    const params = new URLSearchParams();
+    Array.from(input.files).forEach((file) => params.append('filename', file.name));
+    try {
+      const response = await fetch(`/attachments/check-name?${params.toString()}`);
+      if (!response.ok) throw new Error('同名检查失败');
+      const result = await response.json();
+      if (result.duplicate) {
+        const names = result.duplicates.slice(0, 5).join('、');
+        const suffix = result.duplicates.length > 5 ? ' 等文件' : '';
+        if (!confirm(`以下文件名已存在或在本批次中重复：${names}${suffix}。仍要上传重复文件吗？`)) return;
+        allow.value = '1';
+      }
       form.submit();
+    } catch (error) {
+      alert(error.message || '上传前检查失败，请重试');
     }
   });
 });

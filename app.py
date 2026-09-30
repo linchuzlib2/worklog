@@ -1261,9 +1261,21 @@ def delete_file(attachment_id):
 
 @app.get("/attachments/check-name")
 def check_attachment_name():
-    filename = request.args.get("filename", "").strip()
-    duplicate = bool(filename and Attachment.query.filter(func.lower(Attachment.original_name) == filename.lower()).first())
-    return jsonify({"duplicate": duplicate})
+    filenames = [os.path.basename(name.replace("\\", "/")).strip() for name in request.args.getlist("filename") if name.strip()]
+    normalized_names = [name.casefold() for name in filenames]
+    existing_names = {
+        name.casefold()
+        for (name,) in Attachment.query.with_entities(Attachment.original_name)
+        .filter(func.lower(Attachment.original_name).in_(normalized_names))
+        .all()
+    } if normalized_names else set()
+    seen = set()
+    duplicates = []
+    for name, normalized in zip(filenames, normalized_names):
+        if normalized in existing_names or normalized in seen:
+            duplicates.append(name)
+        seen.add(normalized)
+    return jsonify({"duplicate": bool(duplicates), "duplicates": duplicates})
 
 
 @app.post("/attachments/link")
@@ -1587,8 +1599,12 @@ def mindmap_unlink(task_id):
 
 @app.post("/attachments/upload")
 def upload_attachment():
-    uploaded = request.files.get("file")
-    if not uploaded or not uploaded.filename:
+    uploads = [uploaded for uploaded in request.files.getlist("files") if uploaded and uploaded.filename]
+    if not uploads:
+        legacy_upload = request.files.get("file")
+        if legacy_upload and legacy_upload.filename:
+            uploads = [legacy_upload]
+    if not uploads:
         flash("请选择附件", "error")
         return redirect(request.referrer or url_for("index"))
     if not storage.enabled:
@@ -1598,31 +1614,55 @@ def upload_attachment():
     note_id = request.form.get("note_id", type=int)
     folder_id = request.form.get("folder_id", type=int)
     allow_duplicate = request.form.get("allow_duplicate") == "1"
-    duplicate = Attachment.query.filter(func.lower(Attachment.original_name) == uploaded.filename.strip().lower()).first()
-    if duplicate and not allow_duplicate:
-        flash(f"已存在同名文件“{uploaded.filename}”，如需继续上传请确认重复上传。", "error")
-        return redirect(request.referrer or url_for("file_manager"))
-    safe_name = re.sub(r"[^\w.\- ]", "_", uploaded.filename)[:180]
-    key = f"attachments/{uuid.uuid4().hex}-{safe_name}"
-    uploaded_size = None
-    try:
-        uploaded.stream.seek(0)
-        uploaded_size = storage.upload(uploaded, key)
-        attachment = Attachment(original_name=uploaded.filename, object_key=key, content_type=uploaded.content_type or "application/octet-stream", size=uploaded_size, task_id=task_id, note_id=note_id, folder_id=folder_id)
-        db.session.add(attachment)
-        db.session.commit()
-    except Exception as error:
-        db.session.rollback()
-        if uploaded_size is not None:
-            try:
-                storage.delete(key)
-            except Exception:
-                app.logger.exception("Failed to clean up uploaded object after attachment save failure")
-        app.logger.exception("Attachment upload failed")
-        flash(f"附件上传失败：{error}", "error")
-    else:
+    existing_names = {
+        name.casefold()
+        for (name,) in Attachment.query.with_entities(Attachment.original_name).all()
+        if name
+    }
+    seen_names = set()
+    uploaded_count = 0
+    failures = []
+    for uploaded in uploads:
+        filename = os.path.basename(uploaded.filename.replace("\\", "/")).strip()
+        normalized_name = filename.casefold()
+        if not filename:
+            failures.append("有一个文件名为空，已跳过")
+            continue
+        if not allow_duplicate and (normalized_name in existing_names or normalized_name in seen_names):
+            failures.append(f"{filename}: 文件名重复，已跳过")
+            seen_names.add(normalized_name)
+            continue
+
+        safe_name = re.sub(r"[^\w.\- ]", "_", filename)[:180]
+        key = f"attachments/{uuid.uuid4().hex}-{safe_name}"
+        uploaded_size = None
+        try:
+            uploaded.stream.seek(0)
+            uploaded_size = storage.upload(uploaded, key)
+            attachment = Attachment(original_name=filename, object_key=key, content_type=uploaded.content_type or "application/octet-stream", size=uploaded_size, task_id=task_id, note_id=note_id, folder_id=folder_id)
+            db.session.add(attachment)
+            db.session.commit()
+            uploaded_count += 1
+            existing_names.add(normalized_name)
+            seen_names.add(normalized_name)
+        except Exception as error:
+            db.session.rollback()
+            if uploaded_size is not None:
+                try:
+                    storage.delete(key)
+                except Exception:
+                    app.logger.exception("Failed to clean up uploaded object after attachment save failure")
+            app.logger.exception("Attachment upload failed for %s", filename)
+            failures.append(f"{filename}: {error}")
+
+    if uploaded_count:
         schedule_database_sync()
-        flash("附件已上传", "success")
+        flash(f"成功上传 {uploaded_count} 个文件", "success")
+    if failures:
+        visible_failures = failures[:5]
+        if len(failures) > len(visible_failures):
+            visible_failures.append(f"另有 {len(failures) - len(visible_failures)} 个文件失败或重名")
+        flash("部分文件未上传：" + "；".join(visible_failures), "error")
     return redirect(request.referrer or url_for("index"))
 
 

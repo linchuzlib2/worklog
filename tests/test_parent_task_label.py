@@ -269,8 +269,52 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn('附件上传失败', response.get_data(as_text=True))
+        self.assertIn('部分文件未上传', response.get_data(as_text=True))
+        self.assertIn('failed.docx', response.get_data(as_text=True))
         self.assertIsNone(worklog.Attachment.query.filter_by(original_name='failed.docx').first())
+
+    def test_file_manager_batch_upload_skips_duplicates_and_keeps_successes(self):
+        class MemoryStorage:
+            def __init__(self):
+                self.objects = {}
+
+            def put_object(self, Bucket, Key, Body, **kwargs):
+                self.objects[Key] = Body
+
+            def delete_object(self, Bucket, Key):
+                self.objects.pop(Key, None)
+
+        existing = worklog.Attachment(
+            original_name='already.txt',
+            object_key='attachments/already.txt',
+            size=4,
+        )
+        db.session.add(existing)
+        db.session.commit()
+        memory_storage = MemoryStorage()
+
+        with patch.object(worklog.storage, 'client', memory_storage), patch.object(worklog, 'schedule_database_sync') as schedule_sync:
+            response = app.test_client().post(
+                '/attachments/upload',
+                data={
+                    'allow_duplicate': '0',
+                    'files': [
+                        (BytesIO(b'first'), 'first.txt'),
+                        (BytesIO(b'duplicate existing'), 'already.txt'),
+                        (BytesIO(b'duplicate current batch'), 'FIRST.TXT'),
+                        (BytesIO(b'second'), 'second.txt'),
+                    ],
+                },
+                content_type='multipart/form-data',
+                follow_redirects=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('成功上传 2 个文件', response.get_data(as_text=True))
+        self.assertIn('文件名重复，已跳过', response.get_data(as_text=True))
+        self.assertEqual(worklog.Attachment.query.count(), 3)
+        self.assertEqual(len(memory_storage.objects), 2)
+        schedule_sync.assert_called_once_with()
 
     def test_schedule_form_updates_existing_schedule(self):
         schedule = Schedule(
