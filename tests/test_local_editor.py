@@ -165,6 +165,16 @@ class LocalEditorApiTestCase(unittest.TestCase):
         schedule_sync.assert_called_once_with()
         sync_database.assert_not_called()
 
+    def test_unexpected_save_error_redirects_with_message(self):
+        def fail_upload():
+            raise RuntimeError("unexpected database failure")
+
+        with patch.dict(worklog.app.view_functions, {"knowledge_upload": fail_upload}):
+            response = self.client.post("/knowledge/upload", follow_redirects=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("请求未能正常完成", response.get_data(as_text=True))
+
 
 if __name__ == "__main__":
     unittest.main()

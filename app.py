@@ -24,7 +24,7 @@ from botocore.config import Config
 from docx import Document
 from dotenv import load_dotenv
 from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, session, url_for
-from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
 import ai
 from flask_sqlalchemy import SQLAlchemy
@@ -49,6 +49,37 @@ def handle_request_too_large(error):
         flash("文件总大小超过 100 MiB 上传上限，请拆分成多个批次上传。", "error")
         return redirect(request.referrer or url_for("file_manager"))
     return error
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_post_error(error):
+    if isinstance(error, HTTPException):
+        return error
+    app.logger.exception("Unhandled request error: method=%s path=%s", request.method, request.path)
+    try:
+        db.session.rollback()
+    except Exception:
+        app.logger.exception("Failed to roll back the database session after request error")
+    if request.method != "POST":
+        return "服务暂时无法处理该请求，请稍后重试。", 500
+    message = "请求未能正常完成。请刷新页面确认是否已保存，再重试；系统已记录错误详情。"
+    if request.is_json:
+        return jsonify({"error": message}), 500
+    endpoint = request.endpoint or ""
+    if endpoint.startswith("knowledge"):
+        destination = url_for("knowledge")
+    elif endpoint.startswith("note"):
+        destination = url_for("note_list")
+    elif endpoint.startswith("schedule"):
+        destination = url_for("schedule")
+    elif endpoint.startswith(("file", "attachment", "move_file", "delete_file")):
+        destination = url_for("file_manager")
+    elif endpoint.startswith(("task", "mindmap")):
+        destination = url_for("mindmap")
+    else:
+        destination = url_for("index")
+    flash(message, "error")
+    return redirect(destination)
 
 CHINA_TIMEZONE = timezone(timedelta(hours=8), name="China Standard Time")
 
@@ -231,7 +262,7 @@ def restore_database():
             database_file.write(data)
 
 
-def sync_database():
+def _perform_database_sync():
     if storage.enabled and os.path.exists(database_path()):
         with open(database_path(), "rb") as database_file:
             storage.upload_bytes(database_file.read(), os.getenv("OSS_DATABASE_KEY", "worklog/worklog.db"), "application/x-sqlite3")
@@ -249,7 +280,7 @@ def _database_sync_worker():
         while _database_sync_requested.wait(timeout=1.0):
             _database_sync_requested.clear()
         try:
-            sync_database()
+            _perform_database_sync()
         except Exception:
             app.logger.exception("Background database backup sync failed")
 
@@ -259,15 +290,23 @@ def schedule_database_sync():
     global _database_sync_worker_thread
     if not storage.enabled:
         return
-    with _database_sync_worker_lock:
-        if _database_sync_worker_thread is None or not _database_sync_worker_thread.is_alive():
-            _database_sync_worker_thread = threading.Thread(
-                target=_database_sync_worker,
-                name="database-backup-sync",
-                daemon=True,
-            )
-            _database_sync_worker_thread.start()
-        _database_sync_requested.set()
+    try:
+        with _database_sync_worker_lock:
+            if _database_sync_worker_thread is None or not _database_sync_worker_thread.is_alive():
+                _database_sync_worker_thread = threading.Thread(
+                    target=_database_sync_worker,
+                    name="database-backup-sync",
+                    daemon=True,
+                )
+                _database_sync_worker_thread.start()
+            _database_sync_requested.set()
+    except Exception:
+        app.logger.exception("Failed to schedule database backup sync")
+
+
+def sync_database():
+    """Queue a coalesced OSS backup instead of blocking the request thread."""
+    schedule_database_sync()
 
 
 # ---- 知识库 RAG ----
