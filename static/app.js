@@ -163,8 +163,15 @@ document.addEventListener('keydown', (event) => {
 
 const scheduleDialog = document.querySelector('#schedule-dialog');
 if (scheduleDialog) {
+  const scheduleForm = scheduleDialog.querySelector('form');
   const startInput = scheduleDialog.querySelector('input[name="start_at"]');
   const endInput = scheduleDialog.querySelector('input[name="end_at"]');
+  const scheduleIdInput = scheduleDialog.querySelector('input[name="schedule_id"]');
+  const titleInput = scheduleDialog.querySelector('input[name="title"]');
+  const taskInput = scheduleDialog.querySelector('select[name="task_id"]');
+  const descriptionInput = scheduleDialog.querySelector('textarea[name="description"]');
+  const dialogTitle = scheduleDialog.querySelector('[data-schedule-dialog-title]');
+  const submitButton = scheduleDialog.querySelector('[data-schedule-submit]');
   const syncEndFromStart = () => {
     if (!startInput.value) return;
     const suggestedEnd = window.chinaDateTime.addMinutes(startInput.value, 30);
@@ -176,11 +183,31 @@ if (scheduleDialog) {
     startInput.addEventListener(eventName, syncEndFromStart);
   });
   const openScheduleDialog = (date, time) => {
+    scheduleForm.reset();
+    scheduleIdInput.value = '';
+    dialogTitle.textContent = '添加日程';
+    submitButton.textContent = '保存日程　→';
     startInput.value = `${date}T${time}`;
     endInput.value = window.chinaDateTime.addMinutes(startInput.value, 30);
     scheduleDialog.showModal();
-    scheduleDialog.querySelector('input[name="title"]').focus();
+    titleInput.focus();
   };
+  document.querySelectorAll('[data-edit-schedule]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const card = button.closest('.schedule-card');
+      scheduleForm.reset();
+      scheduleIdInput.value = card.dataset.scheduleId;
+      titleInput.value = card.dataset.title;
+      startInput.value = card.dataset.startAt;
+      endInput.value = card.dataset.endAt;
+      taskInput.value = card.dataset.taskId;
+      descriptionInput.value = card.dataset.description;
+      dialogTitle.textContent = '编辑日程';
+      submitButton.textContent = '更新日程　→';
+      scheduleDialog.showModal();
+      titleInput.focus();
+    });
+  });
   document.querySelectorAll('.calendar-slot, .calendar-day-header').forEach((cell) => {
     cell.addEventListener('click', (event) => {
       if (event.target.closest('.schedule-card, a, form, button')) return;

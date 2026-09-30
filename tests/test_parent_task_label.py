@@ -1,12 +1,16 @@
 import unittest
 from datetime import datetime, timedelta
 from io import BytesIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from ebooklib import epub
 from openpyxl import Workbook
 from sqlalchemy import event
 
-from app import KnowledgeDoc, app, Assignee, Schedule, db, mindmap_tree_data, Task
+import app as worklog
+from app import KnowledgeDoc, Note, app, Assignee, Schedule, _epub_chapters, db, mindmap_tree_data, Task
 
 
 class DashboardParentTaskLabelTestCase(unittest.TestCase):
@@ -83,6 +87,37 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         self.assertEqual(len(tree), 1)
         self.assertEqual(len(tree[0]['children']), 30)
         self.assertLessEqual(len(select_statements), 3)
+
+    def test_epub_reader_extracts_spine_and_sanitizes_chapter_html(self):
+        book = epub.EpubBook()
+        book.set_identifier('reader-test')
+        book.set_title('Reader Test')
+        book.set_language('en')
+        first = epub.EpubHtml(title='Chapter One', file_name='Text/one.xhtml', lang='en')
+        first.content = b'<html><body><h1>First</h1><a href="two.xhtml">Next chapter</a><script>alert(1)</script></body></html>'
+        second = epub.EpubHtml(title='Chapter Two', file_name='Text/two.xhtml', lang='en')
+        second.content = b'<html><body><h1>Second</h1></body></html>'
+        book.add_item(first)
+        book.add_item(second)
+        book.add_item(epub.EpubNcx())
+        book.toc = (
+            epub.Link('Text/one.xhtml', 'Chapter One', 'chapter-one'),
+            epub.Link('Text/two.xhtml', 'Chapter Two', 'chapter-two'),
+        )
+        book.spine = ['ncx', first, second]
+
+        with TemporaryDirectory() as directory:
+            epub_path = Path(directory) / 'reader-test.epub'
+            epub.write_epub(str(epub_path), book)
+            result = _epub_chapters(
+                type('AttachmentStub', (), {'id': 123, 'original_name': 'reader-test.epub'})(),
+                epub_path.read_bytes(),
+            )
+
+        self.assertEqual(result['title'], 'Reader Test')
+        self.assertEqual([chapter['title'] for chapter in result['chapters']], ['Chapter One', 'Chapter Two'])
+        self.assertIn('data-epub-chapter="1"', result['chapters'][0]['content'])
+        self.assertNotIn('<script', result['chapters'][0]['content'])
 
     def test_task_assignee_auto_propagates_to_ancestors(self):
         root = Task(title='洗车')
@@ -203,6 +238,71 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         self.assertIsNotNone(KnowledgeDoc.query.filter_by(filename='new-policy.txt').first())
         self.assertIsNone(KnowledgeDoc.query.filter_by(filename='NEW-POLICY.TXT').first())
         self.assertEqual(KnowledgeDoc.query.filter_by(filename='Policy.txt').count(), 1)
+
+    def test_note_with_large_embedded_image_saves_without_waiting_for_oss(self):
+        image_data = 'A' * (2 * 1024 * 1024)
+        content = f'<p>note body</p><img src="data:image/png;base64,{image_data}">'
+        with patch('app.schedule_database_sync') as schedule_sync:
+            response = app.test_client().post(
+                '/notes/new',
+                data={'title': 'base64 note', 'content': content},
+                follow_redirects=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('笔记已保存', response.get_data(as_text=True))
+        note = Note.query.filter_by(title='base64 note').first()
+        self.assertIn('data:image/png;base64,', note.content)
+        schedule_sync.assert_called_once_with()
+
+    def test_attachment_upload_failure_returns_flash_instead_of_500(self):
+        class FailingStorage:
+            def put_object(self, **kwargs):
+                raise ValueError('storage unavailable')
+
+        with patch.object(worklog.storage, 'client', FailingStorage()):
+            response = app.test_client().post(
+                '/attachments/upload',
+                data={'file': (BytesIO(b'file bytes'), 'failed.docx'), 'allow_duplicate': '1'},
+                content_type='multipart/form-data',
+                follow_redirects=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('附件上传失败', response.get_data(as_text=True))
+        self.assertIsNone(worklog.Attachment.query.filter_by(original_name='failed.docx').first())
+
+    def test_schedule_form_updates_existing_schedule(self):
+        schedule = Schedule(
+            title='旧标题',
+            start_at=datetime(2026, 9, 30, 9, 0),
+            end_at=datetime(2026, 9, 30, 9, 30),
+            description='旧备注',
+        )
+        db.session.add(schedule)
+        db.session.commit()
+
+        response = app.test_client().post(
+            '/schedule',
+            data={
+                'schedule_id': str(schedule.id),
+                'title': '新标题',
+                'start_at': '2026-09-30T10:00',
+                'end_at': '2026-09-30T10:45',
+                'description': '新备注',
+                'task_id': '',
+                'week': '2026-09-28',
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Schedule.query.count(), 1)
+        updated = db.session.get(Schedule, schedule.id)
+        self.assertEqual(updated.title, '新标题')
+        self.assertEqual(updated.start_at, datetime(2026, 9, 30, 10, 0))
+        self.assertEqual(updated.end_at, datetime(2026, 9, 30, 10, 45))
+        self.assertEqual(updated.description, '新备注')
 
 
 if __name__ == '__main__':

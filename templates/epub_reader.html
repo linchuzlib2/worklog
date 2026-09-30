@@ -1,0 +1,142 @@
+{% extends 'base.html' %}
+{% block title %}{{ attachment.original_name }}{% endblock %}
+{% block content %}
+<div class="epub-reader" data-attachment-id="{{ attachment.id }}">
+  <header class="epub-reader-header">
+    <a class="back-link" href="{{ url_for('file_manager') }}">← 返回文件管理</a>
+    <h1 id="epub-title">正在打开 EPUB…</h1>
+  </header>
+  <div class="epub-reader-layout">
+    <aside class="epub-toc-panel">
+      <h2>目录</h2>
+      <nav id="epub-toc" aria-label="EPUB 目录"></nav>
+    </aside>
+    <main class="epub-reader-main">
+      <div class="epub-toolbar">
+        <button class="button ghost small" id="epub-previous" type="button" title="上一章">← 上一章</button>
+        <span id="epub-chapter-label" aria-live="polite"></span>
+        <button class="button ghost small" id="epub-next" type="button" title="下一章">下一章 →</button>
+        <span class="epub-toolbar-spacer"></span>
+        <button class="button ghost small" id="epub-font-down" type="button" title="缩小字号">A−</button>
+        <button class="button ghost small" id="epub-font-up" type="button" title="放大字号">A+</button>
+      </div>
+      <div class="epub-progress-row">
+        <input id="epub-progress" type="range" min="0" max="0" value="0" aria-label="阅读进度">
+        <span id="epub-progress-label">0%</span>
+      </div>
+      <article id="epub-content" class="epub-content" aria-live="polite"></article>
+    </main>
+  </div>
+</div>
+<script>
+(function () {
+  var root = document.querySelector('.epub-reader');
+  var attachmentId = root.dataset.attachmentId;
+  var title = document.getElementById('epub-title');
+  var toc = document.getElementById('epub-toc');
+  var chapterLabel = document.getElementById('epub-chapter-label');
+  var content = document.getElementById('epub-content');
+  var progress = document.getElementById('epub-progress');
+  var progressLabel = document.getElementById('epub-progress-label');
+  var previous = document.getElementById('epub-previous');
+  var next = document.getElementById('epub-next');
+  var storageKey = 'epub-reader-' + attachmentId;
+  var chapters = [];
+  var chapterIndex = 0;
+  var fontSize = 18;
+
+  function savePosition() {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({ chapterIndex: chapterIndex, scrollTop: content.scrollTop, fontSize: fontSize }));
+    } catch (error) {}
+  }
+
+  function updateProgress() {
+    var total = Math.max(content.scrollHeight - content.clientHeight, 1);
+    var chapterProgress = Math.max(0, Math.min(1, content.scrollTop / total));
+    var percent = chapters.length ? Math.round((chapterIndex + chapterProgress) / chapters.length * 100) : 0;
+    progress.value = Math.max(0, Math.min(100, Math.round((chapterIndex + chapterProgress) / Math.max(chapters.length - 1, 1) * 100)));
+    progressLabel.textContent = percent + '%';
+    chapterLabel.textContent = (chapterIndex + 1) + ' / ' + chapters.length + ' · ' + chapters[chapterIndex].title;
+    previous.disabled = chapterIndex === 0;
+    next.disabled = chapterIndex === chapters.length - 1;
+    savePosition();
+  }
+
+  function showChapter(index, scrollTop) {
+    chapterIndex = Math.max(0, Math.min(index, chapters.length - 1));
+    content.innerHTML = chapters[chapterIndex].content;
+    content.style.fontSize = fontSize + 'px';
+    content.scrollTop = scrollTop || 0;
+    toc.querySelectorAll('button').forEach(function (button, buttonIndex) {
+      button.classList.toggle('active', buttonIndex === chapterIndex);
+      button.setAttribute('aria-current', buttonIndex === chapterIndex ? 'page' : 'false');
+    });
+    updateProgress();
+  }
+
+  function buildToc() {
+    toc.textContent = '';
+    chapters.forEach(function (chapter, index) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = chapter.title || ('章节 ' + (index + 1));
+      button.addEventListener('click', function () { showChapter(index, 0); });
+      toc.appendChild(button);
+    });
+  }
+
+  fetch('/api/attachments/' + attachmentId + '/epub')
+    .then(function (response) {
+      if (!response.ok) return response.json().then(function (result) { throw new Error(result.error || response.status); });
+      return response.json();
+    })
+    .then(function (book) {
+      chapters = book.chapters || [];
+      if (!chapters.length) throw new Error('这本 EPUB 没有可阅读的章节');
+      title.textContent = book.title || {{ attachment.original_name|tojson }};
+      progress.max = Math.max(chapters.length - 1, 0) * 100;
+      buildToc();
+      var saved = null;
+      try { saved = JSON.parse(localStorage.getItem(storageKey) || 'null'); } catch (error) {}
+      if (saved && Number.isFinite(saved.fontSize)) fontSize = Math.max(14, Math.min(saved.fontSize, 30));
+      showChapter(saved && Number.isFinite(saved.chapterIndex) ? saved.chapterIndex : 0, saved && saved.scrollTop || 0);
+    })
+    .catch(function (error) {
+      title.textContent = 'EPUB 打开失败';
+      content.textContent = error.message;
+    });
+
+  previous.addEventListener('click', function () { showChapter(chapterIndex - 1, 0); });
+  next.addEventListener('click', function () { showChapter(chapterIndex + 1, 0); });
+  document.getElementById('epub-font-down').addEventListener('click', function () {
+    fontSize = Math.max(14, fontSize - 2);
+    content.style.fontSize = fontSize + 'px';
+    savePosition();
+  });
+  document.getElementById('epub-font-up').addEventListener('click', function () {
+    fontSize = Math.min(30, fontSize + 2);
+    content.style.fontSize = fontSize + 'px';
+    savePosition();
+  });
+  progress.addEventListener('input', function () {
+    if (!chapters.length) return;
+    var selectedChapter = Number(progress.value) / 100;
+    var targetIndex = Math.min(Math.floor(selectedChapter), chapters.length - 1);
+    showChapter(targetIndex, 0);
+  });
+  content.addEventListener('scroll', updateProgress);
+  content.addEventListener('click', function (event) {
+    var link = event.target.closest('a[data-epub-chapter]');
+    if (!link) return;
+    event.preventDefault();
+    showChapter(Number(link.dataset.epubChapter), 0);
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.target.matches('input, textarea, select, button')) return;
+    if (event.key === 'ArrowLeft') showChapter(chapterIndex - 1, 0);
+    if (event.key === 'ArrowRight') showChapter(chapterIndex + 1, 0);
+  });
+})();
+</script>
+{% endblock %}

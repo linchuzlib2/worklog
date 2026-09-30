@@ -35,8 +35,8 @@ New-Item -ItemType Directory -Path $sessionPath -Force | Out-Null
 try {
   $metadata = Invoke-RestMethod -Uri $apiBase -Headers $headers -Method Get
   $fileName = [IO.Path]::GetFileName([string]$metadata.filename)
-  if ([IO.Path]::GetExtension($fileName).ToLowerInvariant() -notin @('.doc', '.docx', '.xls', '.xlsx', '.pdf')) {
-    Stop-WithMessage 'This helper supports Word, Excel, and PDF files only.'
+  if ([IO.Path]::GetExtension($fileName).ToLowerInvariant() -notin @('.doc', '.docx', '.xls', '.xlsx', '.pdf', '.epub')) {
+    Stop-WithMessage 'This helper supports Word, Excel, PDF, and EPUB files only.'
   }
   $filePath = Join-Path $sessionPath $fileName
   $download = Invoke-WebRequest -Uri "$apiBase/content" -Headers $headers -Method Get -OutFile $filePath -UseBasicParsing -PassThru
@@ -57,7 +57,7 @@ try {
 
 $watcher = New-Object IO.FileSystemWatcher
 $watcher.Path = $sessionPath
-$watcher.Filter = $fileName
+$watcher.Filter = '*'
 $watcher.NotifyFilter = [IO.NotifyFilters]::LastWrite -bor [IO.NotifyFilters]::Size -bor [IO.NotifyFilters]::FileName
 $watcher.EnableRaisingEvents = $true
 $sourceIds = @("WorklogLocalEditor-$attachmentId-Changed", "WorklogLocalEditor-$attachmentId-Created", "WorklogLocalEditor-$attachmentId-Renamed")
@@ -68,28 +68,53 @@ Register-ObjectEvent -InputObject $watcher -EventName Renamed -SourceIdentifier 
 Write-Host "Watching for saves: $fileName" -ForegroundColor Cyan
 Write-Host 'Changes upload automatically. Closing this window stops monitoring.'
 $deadline = [DateTime]::UtcNow.AddHours(24)
+$lastUploadedSignature = ''
+$pendingHash = $null
+$lastUploadAttempt = [DateTime]::MinValue
 try {
   while ([DateTime]::UtcNow -lt $deadline) {
-    $change = Wait-Event -Timeout 10
-    if (-not $change) { continue }
-    Remove-Event -EventIdentifier $change.EventIdentifier -ErrorAction SilentlyContinue
-
-    while ($quietEvent = Wait-Event -Timeout 2) {
-      Remove-Event -EventIdentifier $quietEvent.EventIdentifier -ErrorAction SilentlyContinue
+    $change = Wait-Event -Timeout 5
+    if ($change) {
+      Remove-Event -EventIdentifier $change.EventIdentifier -ErrorAction SilentlyContinue
+      while ($quietEvent = Wait-Event -Timeout 1) {
+        Remove-Event -EventIdentifier $quietEvent.EventIdentifier -ErrorAction SilentlyContinue
+      }
     }
     if (-not (Test-Path $filePath)) { continue }
 
     try {
-      $currentHash = (Get-FileHash -Path $filePath -Algorithm SHA256).Hash.ToLowerInvariant()
+      $before = Get-Item -LiteralPath $filePath -ErrorAction Stop
+      $signature = '{0}:{1}' -f $before.Length, $before.LastWriteTimeUtc.Ticks
+      if ($signature -ne $lastUploadedSignature) {
+        Start-Sleep -Milliseconds 1000
+        $middle = Get-Item -LiteralPath $filePath -ErrorAction Stop
+        $middleSignature = '{0}:{1}' -f $middle.Length, $middle.LastWriteTimeUtc.Ticks
+        if ($middleSignature -ne $signature) { continue }
+
+        $currentHash = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        $after = Get-Item -LiteralPath $filePath -ErrorAction Stop
+        $afterSignature = '{0}:{1}' -f $after.Length, $after.LastWriteTimeUtc.Ticks
+        if ($afterSignature -ne $middleSignature) { continue }
+
+        $lastUploadedSignature = $afterSignature
+        if ($currentHash -eq $lastUploadedHash) {
+          $pendingHash = $null
+        } else {
+          $pendingHash = $currentHash
+        }
+      }
     } catch {
+      Write-Host "Waiting for the document to finish saving: $($_.Exception.Message)" -ForegroundColor Yellow
       continue
     }
-    if ($currentHash -eq $lastUploadedHash) { continue }
+    if (-not $pendingHash -or ([DateTime]::UtcNow - $lastUploadAttempt).TotalSeconds -lt 4) { continue }
 
     try {
+      $lastUploadAttempt = [DateTime]::UtcNow
       Invoke-WebRequest -Uri "$apiBase/content" -Headers ($headers + @{ 'If-Match' = $revision }) -Method Put -InFile $filePath -ContentType 'application/octet-stream' -UseBasicParsing | Out-Null
-      $revision = $currentHash
-      $lastUploadedHash = $currentHash
+      $revision = $pendingHash
+      $lastUploadedHash = $pendingHash
+      $pendingHash = $null
       Write-Host "Uploaded: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor Green
     } catch {
       $statusCode = 0
@@ -98,7 +123,7 @@ try {
         Write-Host 'The cloud version changed. Close this document and reopen the latest version.' -ForegroundColor Yellow
         break
       }
-      Write-Host "Upload failed: $($_.Exception.Message)" -ForegroundColor Red
+      Write-Host "Upload failed; retrying automatically: $($_.Exception.Message)" -ForegroundColor Red
     }
   }
 } finally {

@@ -2,15 +2,21 @@ import csv
 import hashlib
 import hmac
 import json
+import mimetypes
 import os
+import posixpath
 import re
+import tempfile
 import threading
 import uuid
+import zipfile
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO, StringIO
+from urllib.parse import unquote, urlsplit
 
 import bleach
 import boto3
+from ebooklib import epub, ITEM_DOCUMENT
 import openpyxl
 import xlrd
 from botocore.exceptions import BotoCoreError, ClientError
@@ -21,6 +27,7 @@ from flask import Flask, flash, jsonify, redirect, render_template, request, sen
 
 import ai
 from flask_sqlalchemy import SQLAlchemy
+from lxml import html as lxml_html
 from sqlalchemy import event, func, inspect, or_
 
 load_dotenv()
@@ -735,6 +742,8 @@ def api_reminders():
 @app.route("/schedule", methods=["GET", "POST"])
 def schedule():
     if request.method == "POST":
+        schedule_id = request.form.get("schedule_id", type=int)
+        item = db.get_or_404(Schedule, schedule_id) if schedule_id else None
         start_at = parse_datetime(request.form.get("start_at"))
         end_at = parse_datetime(request.form.get("end_at"))
         if not start_at:
@@ -742,11 +751,25 @@ def schedule():
         else:
             if not end_at or end_at <= start_at:
                 end_at = start_at + timedelta(minutes=30)
-            item = Schedule(title=request.form["title"].strip(), start_at=start_at, end_at=end_at, description=request.form.get("description", "").strip(), task_id=request.form.get("task_id", type=int) or None)
-            db.session.add(item)
+            if item:
+                item.title = request.form["title"].strip()
+                item.start_at = start_at
+                item.end_at = end_at
+                item.description = request.form.get("description", "").strip()
+                item.task_id = request.form.get("task_id", type=int) or None
+                success_message = "日程已更新"
+            else:
+                item = Schedule(title=request.form["title"].strip(), start_at=start_at, end_at=end_at, description=request.form.get("description", "").strip(), task_id=request.form.get("task_id", type=int) or None)
+                db.session.add(item)
+                success_message = "日程已创建"
             db.session.commit()
-            sync_database()
-            flash("日程已创建", "success")
+            try:
+                sync_database()
+            except Exception:
+                app.logger.exception("Failed to sync database after saving schedule")
+                flash(f"{success_message}，但数据库备份同步失败，请检查 Render 日志中的 OSS 错误。", "error")
+            else:
+                flash(success_message, "success")
         return redirect(url_for("schedule", week=request.form.get("week")))
     selected = request.args.get("week")
     try:
@@ -904,13 +927,8 @@ def new_note():
         note = Note(title=request.form["title"].strip(), content=sanitize_html(request.form.get("content")), task_id=request.form.get("task_id", type=int) or None)
         db.session.add(note)
         db.session.commit()
-        try:
-            sync_database()
-        except Exception:
-            app.logger.exception("Failed to sync database after saving note")
-            flash("笔记已保存，但数据库备份同步失败，请检查 Render 日志中的 OSS 错误。", "error")
-        else:
-            flash("笔记已保存", "success")
+        schedule_database_sync()
+        flash("笔记已保存", "success")
         return redirect(url_for("note_detail", note_id=note.id))
     return render_template("note_form.html", note=None, tasks=Task.query.order_by(Task.title).all(), selected_task_id=request.args.get("task_id", type=int))
 
@@ -929,13 +947,8 @@ def edit_note(note_id):
         note.content = sanitize_html(request.form.get("content"))
         note.task_id = request.form.get("task_id", type=int) or None
         db.session.commit()
-        try:
-            sync_database()
-        except Exception:
-            app.logger.exception("Failed to sync database after updating note")
-            flash("笔记已更新，但数据库备份同步失败，请检查 Render 日志中的 OSS 错误。", "error")
-        else:
-            flash("笔记已更新", "success")
+        schedule_database_sync()
+        flash("笔记已更新", "success")
         return redirect(url_for("note_detail", note_id=note.id))
     return render_template("note_form.html", note=note, tasks=Task.query.order_by(Task.title).all(), selected_task_id=note.task_id)
 
@@ -1601,17 +1614,25 @@ def upload_attachment():
         return redirect(request.referrer or url_for("file_manager"))
     safe_name = re.sub(r"[^\w.\- ]", "_", uploaded.filename)[:180]
     key = f"attachments/{uuid.uuid4().hex}-{safe_name}"
+    uploaded_size = None
     try:
         uploaded.stream.seek(0)
         uploaded_size = storage.upload(uploaded, key)
         attachment = Attachment(original_name=uploaded.filename, object_key=key, content_type=uploaded.content_type or "application/octet-stream", size=uploaded_size, task_id=task_id, note_id=note_id, folder_id=folder_id)
         db.session.add(attachment)
         db.session.commit()
-        sync_database()
-        flash("附件已上传", "success")
-    except (BotoCoreError, ClientError, RuntimeError) as error:
+    except Exception as error:
         db.session.rollback()
+        if uploaded_size is not None:
+            try:
+                storage.delete(key)
+            except Exception:
+                app.logger.exception("Failed to clean up uploaded object after attachment save failure")
+        app.logger.exception("Attachment upload failed")
         flash(f"附件上传失败：{error}", "error")
+    else:
+        schedule_database_sync()
+        flash("附件已上传", "success")
     return redirect(request.referrer or url_for("index"))
 
 
@@ -1639,11 +1660,156 @@ def authorize_local_editor():
 def local_editor_attachment(attachment_id):
     attachment = db.get_or_404(Attachment, attachment_id)
     extension = os.path.splitext(attachment.original_name)[1].lower()
-    if extension not in {".doc", ".docx", ".xls", ".xlsx", ".pdf"}:
-        return None, (jsonify({"error": "仅支持 doc、docx、xls、xlsx、pdf 文件"}), 415)
+    if extension not in {".doc", ".docx", ".xls", ".xlsx", ".pdf", ".epub"}:
+        return None, (jsonify({"error": "仅支持 doc、docx、xls、xlsx、pdf、epub 文件"}), 415)
     if not storage.enabled:
         return None, (jsonify({"error": "OSS 存储未配置"}), 503)
     return attachment, None
+
+
+def _epub_toc_titles(book):
+    titles = {}
+
+    def visit(entries):
+        for entry in entries or []:
+            if isinstance(entry, tuple) and len(entry) == 2:
+                visit([entry[0]])
+                visit(entry[1])
+            elif hasattr(entry, "href") and getattr(entry, "href", None):
+                path = posixpath.normpath(unquote(urlsplit(entry.href).path))
+                titles[path] = (getattr(entry, "title", "") or "").strip()
+
+    visit(book.toc)
+    return titles
+
+
+def _epub_chapters(attachment, data):
+    with tempfile.NamedTemporaryFile(suffix=".epub", delete=False) as temporary_file:
+        temporary_file.write(data)
+        temporary_path = temporary_file.name
+
+    reader = epub.EpubReader(temporary_path, options={"ignore_ncx": True})
+    try:
+        book = reader.load()
+        reader.process()
+    finally:
+        if reader.zf:
+            reader.zf.close()
+        try:
+            os.unlink(temporary_path)
+        except OSError:
+            app.logger.warning("Could not remove temporary EPUB file")
+
+    spine_items = []
+    for spine_entry in book.spine:
+        item_id = spine_entry[0] if isinstance(spine_entry, tuple) else spine_entry
+        item = book.get_item_with_id(item_id) if isinstance(item_id, str) else item_id
+        if item and item.get_type() == ITEM_DOCUMENT:
+            spine_items.append(item)
+    if not spine_items:
+        raise ValueError("EPUB 中没有可阅读的章节")
+
+    toc_titles = _epub_toc_titles(book)
+    chapter_indexes = {posixpath.normpath(item.get_name()): index for index, item in enumerate(spine_items)}
+    chapters = []
+    for item in spine_items:
+        chapter_path = posixpath.normpath(item.get_name())
+        document = lxml_html.document_fromstring(item.get_content())
+        body = document.find("body")
+        body = body if body is not None else document
+        for element in body.iter():
+            if not isinstance(element.tag, str):
+                continue
+            tag = element.tag.lower()
+            for attribute in ("src", "poster"):
+                resource = element.get(attribute)
+                if not resource:
+                    continue
+                parsed_resource = urlsplit(resource)
+                if parsed_resource.scheme or parsed_resource.netloc or resource.startswith("data:"):
+                    continue
+                resource_path = posixpath.normpath(posixpath.join(posixpath.dirname(chapter_path), unquote(parsed_resource.path)))
+                if resource_path.startswith("../") or resource_path == "..":
+                    element.attrib.pop(attribute, None)
+                    continue
+                element.set(attribute, url_for("epub_resource", attachment_id=attachment.id, resource=resource_path))
+
+            href = element.get("href") if tag == "a" else None
+            if href:
+                parsed_href = urlsplit(href)
+                if not parsed_href.scheme and not parsed_href.netloc and not href.startswith("#"):
+                    linked_path = posixpath.normpath(posixpath.join(posixpath.dirname(chapter_path), unquote(parsed_href.path)))
+                    linked_index = chapter_indexes.get(linked_path)
+                    if linked_index is not None:
+                        element.set("data-epub-chapter", str(linked_index))
+                        element.set("href", "#")
+                    elif not parsed_href.path:
+                        element.set("href", "#" + parsed_href.fragment)
+                    else:
+                        element.attrib.pop("href", None)
+
+        body_html = (body.text or "") + "".join(
+            lxml_html.tostring(child, encoding="unicode", method="html")
+            for child in body
+        )
+        safe_html = bleach.clean(
+            body_html,
+            tags=ALLOWED_TAGS | {
+                "article", "section", "div", "span", "figure", "figcaption", "table", "thead",
+                "tbody", "tfoot", "tr", "th", "td", "dl", "dt", "dd", "sup", "sub", "del", "ins",
+                "hr", "img",
+            },
+            attributes={
+                "*": ["class", "id", "title", "lang", "dir"],
+                "a": ["href", "class", "id", "title", "data-epub-chapter"],
+                "img": ["src", "alt", "title", "width", "height"],
+            },
+            protocols=["http", "https", "mailto"],
+            strip=True,
+        )
+        chapters.append({
+            "title": toc_titles.get(chapter_path) or getattr(item, "title", "") or os.path.basename(chapter_path),
+            "content": safe_html,
+        })
+    return {"title": book.title or attachment.original_name, "chapters": chapters}
+
+
+@app.get("/attachments/<int:attachment_id>/epub")
+def epub_reader(attachment_id):
+    attachment = db.get_or_404(Attachment, attachment_id)
+    if os.path.splitext(attachment.original_name)[1].lower() != ".epub":
+        return "仅支持 EPUB 文件", 415
+    return render_template("epub_reader.html", attachment=attachment)
+
+
+@app.get("/api/attachments/<int:attachment_id>/epub")
+def epub_reader_data(attachment_id):
+    attachment = db.get_or_404(Attachment, attachment_id)
+    if os.path.splitext(attachment.original_name)[1].lower() != ".epub":
+        return jsonify({"error": "仅支持 EPUB 文件"}), 415
+    try:
+        data = storage.download(attachment.object_key)
+        return jsonify(_epub_chapters(attachment, data))
+    except Exception as error:
+        app.logger.exception("Failed to parse EPUB attachment %s", attachment_id)
+        return jsonify({"error": f"EPUB 读取失败：{error}"}), 422
+
+
+@app.get("/attachments/<int:attachment_id>/epub/resource")
+def epub_resource(attachment_id):
+    attachment = db.get_or_404(Attachment, attachment_id)
+    if os.path.splitext(attachment.original_name)[1].lower() != ".epub":
+        return "仅支持 EPUB 文件", 415
+    resource = posixpath.normpath(unquote(request.args.get("resource", "")).replace("\\", "/"))
+    if not resource or resource.startswith("../") or resource == ".." or resource.startswith("/"):
+        return "资源不存在", 404
+    try:
+        data = storage.download(attachment.object_key)
+        with zipfile.ZipFile(BytesIO(data)) as archive:
+            resource_data = archive.read(resource)
+    except (BotoCoreError, ClientError, KeyError, zipfile.BadZipFile) as error:
+        return jsonify({"error": f"EPUB 资源读取失败：{error}"}), 404
+    return send_file(BytesIO(resource_data), mimetype=mimetypes.guess_type(resource)[0] or "application/octet-stream")
 
 
 @app.get("/api/local-editor/<int:attachment_id>")
@@ -1678,12 +1844,15 @@ def local_editor_content(attachment_id):
         response.set_etag(current_revision)
         return response
 
-    expected_revision = request.headers.get("If-Match", "").strip().strip('"')
-    if not expected_revision or not hmac.compare_digest(expected_revision, current_revision):
-        return jsonify({"error": "云端文件已被其他操作修改，请重新打开最新版本后再编辑"}), 409
     updated_data = request.get_data(cache=False)
     if not updated_data:
         return jsonify({"error": "不能用空文件覆盖原文档"}), 400
+    expected_revision = request.headers.get("If-Match", "").strip().strip('"')
+    if not expected_revision or not hmac.compare_digest(expected_revision, current_revision):
+        updated_revision = hashlib.sha256(updated_data).hexdigest()
+        if hmac.compare_digest(updated_revision, current_revision):
+            return jsonify({"ok": True, "revision": current_revision, "unchanged": True})
+        return jsonify({"error": "云端文件已被其他操作修改，请重新打开最新版本后再编辑"}), 409
 
     try:
         storage.upload_bytes(updated_data, attachment.object_key, attachment.content_type or "application/octet-stream")

@@ -3,6 +3,8 @@ import unittest
 from io import BytesIO
 from unittest.mock import patch
 
+from ebooklib import epub
+
 os.environ["DATABASE_URL"] = "sqlite://"
 
 import app as worklog
@@ -87,6 +89,50 @@ class LocalEditorApiTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.storage.objects["attachments/test.docx"], updated_data)
         self.assertEqual(worklog.db.session.get(worklog.Attachment, self.attachment.id).size, len(updated_data))
+
+        retry_response = self.client.put(
+            f"/api/local-editor/{self.attachment.id}/content",
+            data=updated_data,
+            headers={**self.headers, "If-Match": revision},
+        )
+        self.assertEqual(retry_response.status_code, 200)
+        self.assertTrue(retry_response.get_json()["unchanged"])
+
+    def test_epub_can_be_read_online_and_opened_by_local_editor(self):
+        book = epub.EpubBook()
+        book.set_identifier("test-book")
+        book.set_title("测试电子书")
+        book.set_language("zh")
+        chapter = epub.EpubHtml(title="第一章", file_name="chapter.xhtml", lang="zh")
+        chapter.content = "<html><body><h1>正文标题</h1><p>阅读内容</p></body></html>"
+        book.add_item(chapter)
+        book.add_item(epub.EpubNcx())
+        book.toc = (epub.Link("chapter.xhtml", "第一章", "chapter-one"),)
+        book.spine = ["ncx", chapter]
+        epub_buffer = BytesIO()
+        epub.write_epub(epub_buffer, book)
+        epub_data = epub_buffer.getvalue()
+
+        attachment = worklog.Attachment(
+            original_name="测试电子书.epub",
+            object_key="attachments/test-book.epub",
+            content_type="application/epub+zip",
+            size=len(epub_data),
+        )
+        worklog.db.session.add(attachment)
+        worklog.db.session.commit()
+        self.storage.objects[attachment.object_key] = epub_data
+
+        info = self.client.get(f"/api/local-editor/{attachment.id}", headers=self.headers)
+        reader = self.client.get(f"/api/attachments/{attachment.id}/epub")
+        page = self.client.get(f"/attachments/{attachment.id}/epub")
+
+        self.assertEqual(info.status_code, 200)
+        self.assertEqual(info.get_json()["filename"], "测试电子书.epub")
+        self.assertEqual(reader.status_code, 200)
+        self.assertEqual(reader.get_json()["title"], "测试电子书")
+        self.assertEqual(reader.get_json()["chapters"][0]["title"], "第一章")
+        self.assertEqual(page.status_code, 200)
 
     def test_knowledge_import_survives_database_sync_failure(self):
         with patch.object(worklog.ai, "embed", side_effect=worklog.ai.EmbedUnavailable("not configured")), patch.object(
