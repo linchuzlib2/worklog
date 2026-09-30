@@ -316,6 +316,52 @@ class DashboardParentTaskLabelTestCase(unittest.TestCase):
         self.assertEqual(len(memory_storage.objects), 2)
         schedule_sync.assert_called_once_with()
 
+    def test_file_upload_request_too_large_returns_actionable_message(self):
+        previous_limit = app.config["MAX_CONTENT_LENGTH"]
+        app.config["MAX_CONTENT_LENGTH"] = 64
+        try:
+            response = app.test_client().post(
+                "/attachments/upload",
+                data={
+                    "allow_duplicate": "1",
+                    "files": [(BytesIO(b"x" * 256), "large.bin")],
+                },
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+        finally:
+            app.config["MAX_CONTENT_LENGTH"] = previous_limit
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("超过 100 MiB 上传上限", response.get_data(as_text=True))
+
+    def test_uploaded_file_is_kept_when_backup_queue_fails(self):
+        class MemoryStorage:
+            def __init__(self):
+                self.objects = {}
+
+            def put_object(self, Bucket, Key, Body, **kwargs):
+                self.objects[Key] = Body
+
+            def delete_object(self, Bucket, Key):
+                self.objects.pop(Key, None)
+
+        memory_storage = MemoryStorage()
+        with patch.object(worklog.storage, 'client', memory_storage), patch.object(
+            worklog, 'schedule_database_sync', side_effect=RuntimeError('queue unavailable')
+        ):
+            response = app.test_client().post(
+                "/attachments/upload",
+                data={"allow_duplicate": "1", "files": [(BytesIO(b"file"), "saved.txt")]},
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("已上传 1 个文件，但数据库备份排队失败", response.get_data(as_text=True))
+        self.assertIsNotNone(worklog.Attachment.query.filter_by(original_name="saved.txt").first())
+        self.assertEqual(len(memory_storage.objects), 1)
+
     def test_schedule_form_updates_existing_schedule(self):
         schedule = Schedule(
             title='旧标题',

@@ -24,6 +24,7 @@ from botocore.config import Config
 from docx import Document
 from dotenv import load_dotenv
 from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, session, url_for
+from werkzeug.exceptions import RequestEntityTooLarge
 
 import ai
 from flask_sqlalchemy import SQLAlchemy
@@ -39,6 +40,15 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
 
 db = SQLAlchemy(app)
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_request_too_large(error):
+    app.logger.warning("Request exceeded MAX_CONTENT_LENGTH: path=%s length=%s", request.path, request.content_length)
+    if request.path == url_for("upload_attachment"):
+        flash("文件总大小超过 100 MiB 上传上限，请拆分成多个批次上传。", "error")
+        return redirect(request.referrer or url_for("file_manager"))
+    return error
 
 CHINA_TIMEZONE = timezone(timedelta(hours=8), name="China Standard Time")
 
@@ -1614,11 +1624,17 @@ def upload_attachment():
     note_id = request.form.get("note_id", type=int)
     folder_id = request.form.get("folder_id", type=int)
     allow_duplicate = request.form.get("allow_duplicate") == "1"
-    existing_names = {
-        name.casefold()
-        for (name,) in Attachment.query.with_entities(Attachment.original_name).all()
-        if name
-    }
+    try:
+        existing_names = {
+            name.casefold()
+            for (name,) in Attachment.query.with_entities(Attachment.original_name).all()
+            if name
+        }
+    except Exception as error:
+        db.session.rollback()
+        app.logger.exception("Failed to check existing attachment names")
+        flash(f"无法开始上传：读取已有文件列表失败：{error}", "error")
+        return redirect(request.referrer or url_for("file_manager"))
     seen_names = set()
     uploaded_count = 0
     failures = []
@@ -1656,8 +1672,13 @@ def upload_attachment():
             failures.append(f"{filename}: {error}")
 
     if uploaded_count:
-        schedule_database_sync()
-        flash(f"成功上传 {uploaded_count} 个文件", "success")
+        try:
+            schedule_database_sync()
+        except Exception:
+            app.logger.exception("Failed to schedule database backup after attachment upload")
+            flash(f"已上传 {uploaded_count} 个文件，但数据库备份排队失败，请检查服务器日志。", "error")
+        else:
+            flash(f"成功上传 {uploaded_count} 个文件", "success")
     if failures:
         visible_failures = failures[:5]
         if len(failures) > len(visible_failures):
